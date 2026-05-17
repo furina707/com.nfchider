@@ -11,7 +11,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://api.xposed.info/repository") }
+        maven { url = uri("https://maven.aliyun.com/repository/jcenter") }
     }
 }
 
