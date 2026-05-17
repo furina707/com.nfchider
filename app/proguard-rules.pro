@@ -1,0 +1,2 @@
+-keep class com.nfchider.** { *; }
+-keep class de.robv.android.xposed.** { *; }
