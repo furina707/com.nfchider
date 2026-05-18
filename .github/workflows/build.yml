@@ -26,21 +26,28 @@ jobs:
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > ${{ github.workspace }}/nfchider.jks
 
-      - name: Build Release APK
+      - name: Build APKs
         run: |
-          gradle assembleRelease --no-daemon
+          gradle assembleRelease assembleDebug --no-daemon
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/nfchider.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Sign APK (if needed)
+      - name: Collect APKs
         run: |
-          mv app/build/outputs/apk/release/*.apk NfcHider-v1.0-release.apk || true
+          cp app/build/outputs/apk/release/*.apk NfcHider-v1.0-release.apk
+          cp app/build/outputs/apk/debug/*.apk NfcHider-v1.0-debug.apk
 
-      - name: Upload APK
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
           name: NfcHider-v1.0-release
           path: NfcHider-v1.0-release.apk
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NfcHider-v1.0-debug
+          path: NfcHider-v1.0-debug.apk
