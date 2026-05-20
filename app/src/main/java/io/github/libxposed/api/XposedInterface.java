@@ -38,7 +38,7 @@ public interface XposedInterface {
             }
 
             record Chain(int maxPriority) implements Type {
-                Chain(int maxPriority) {
+                public Chain(int maxPriority) {
                     this.maxPriority = maxPriority;
                 }
 
