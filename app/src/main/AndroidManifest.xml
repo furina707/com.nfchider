@@ -3,6 +3,7 @@
 
     <application
         android:label="NFC Hider"
+        android:description="@string/app_description"
         android:allowBackup="false">
 
         <meta-data
@@ -10,13 +11,10 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="阻止支付宝检测到设备 NFC 硬件" />
+            android:value="@string/app_description" />
         <meta-data
             android:name="xposedminversion"
-            android:value="53" />
-        <meta-data
-            android:name="xposedscope"
-            android:value="com.eg.android.AlipayGphone" />
+            android:value="101" />
 
     </application>
 

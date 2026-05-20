@@ -1,2 +1,2 @@
 -keep class com.nfchider.** { *; }
--keep class de.robv.android.xposed.** { *; }
+-keep class io.github.libxposed.api.** { *; }

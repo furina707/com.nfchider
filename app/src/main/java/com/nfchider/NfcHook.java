@@ -1,18 +1,18 @@
 package com.nfchider;
 
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.nfc.NfcAdapter;
 import android.nfc.NfcManager;
 import android.util.Log;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import androidx.annotation.NonNull;
 
-public class NfcHook implements IXposedHookLoadPackage {
+import java.lang.reflect.Method;
+
+import io.github.libxposed.api.XposedModule;
+import io.github.libxposed.api.XposedModuleInterface;
+
+public class NfcHook extends XposedModule {
 
     private static final String TAG = "NfcHider";
     private static final String TARGET_PKG = "com.eg.android.AlipayGphone";
@@ -27,103 +27,79 @@ public class NfcHook implements IXposedHookLoadPackage {
     };
 
     @Override
-    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
-        if (!TARGET_PKG.equals(lpparam.packageName)) {
+    public void onPackageLoaded(@NonNull PackageLoadedParam param) {
+        if (!TARGET_PKG.equals(param.getPackageName())) {
             return;
         }
-
-        XposedBridge.log(TAG + ": Hooking Alipay NFC detection");
-
-        hookHasSystemFeature();
+        log(Log.INFO, TAG, "Hooking Alipay NFC detection");
+        hookHasSystemFeature(param);
         hookNfcAdapter();
         hookNfcManager();
     }
 
-    private void hookHasSystemFeature() {
+    private void hookHasSystemFeature(PackageLoadedParam param) {
         try {
-            Class<?> appPmClass = XposedHelpers.findClass(
-                "android.app.ApplicationPackageManager", null
-            );
+            Class<?> appPmClass = param.getDefaultClassLoader().loadClass("android.app.ApplicationPackageManager");
 
-            // PackageManager.hasSystemFeature(String)
-            XposedHelpers.findAndHookMethod(appPmClass, "hasSystemFeature",
-                String.class, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        String feature = (String) param.args[0];
-                        if (isNfcFeature(feature)) {
-                            Log.i(TAG, "Blocked hasSystemFeature(" + feature + ")");
-                            XposedBridge.log(TAG + ": Blocked hasSystemFeature(" + feature + ")");
-                            param.setResult(false);
-                        }
-                    }
-                });
+            Method hasFeature1 = appPmClass.getMethod("hasSystemFeature", String.class);
+            hook(hasFeature1).intercept(chain -> {
+                String feature = (String) chain.getArg(0);
+                if (isNfcFeature(feature)) {
+                    log(Log.INFO, TAG, "Blocked hasSystemFeature(" + feature + ")");
+                    return false;
+                }
+                return chain.proceed();
+            });
 
-            // PackageManager.hasSystemFeature(String, int)
-            XposedHelpers.findAndHookMethod(appPmClass, "hasSystemFeature",
-                String.class, int.class, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        String feature = (String) param.args[0];
-                        if (isNfcFeature(feature)) {
-                            Log.i(TAG, "Blocked hasSystemFeature(" + feature + ", ver)");
-                            param.setResult(false);
-                        }
-                    }
-                });
+            Method hasFeature2 = appPmClass.getMethod("hasSystemFeature", String.class, int.class);
+            hook(hasFeature2).intercept(chain -> {
+                String feature = (String) chain.getArg(0);
+                if (isNfcFeature(feature)) {
+                    log(Log.INFO, TAG, "Blocked hasSystemFeature(" + feature + ", ver)");
+                    return false;
+                }
+                return chain.proceed();
+            });
 
-            XposedBridge.log(TAG + ": hooked ApplicationPackageManager");
+            log(Log.INFO, TAG, "hooked ApplicationPackageManager");
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": Failed to hook ApplicationPackageManager: " + t);
+            log(Log.WARN, TAG, "Failed to hook ApplicationPackageManager: " + t);
         }
     }
 
     private void hookNfcAdapter() {
         try {
-            // NfcAdapter.getDefaultAdapter(Context)
-            XposedHelpers.findAndHookMethod(NfcAdapter.class, "getDefaultAdapter",
-                Context.class, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        Log.i(TAG, "Blocked NfcAdapter.getDefaultAdapter(Context)");
-                        param.setResult(null);
-                    }
-                });
-            XposedBridge.log(TAG + ": hooked NfcAdapter.getDefaultAdapter(Context)");
+            Method getDefaultAdapter1 = NfcAdapter.class.getMethod("getDefaultAdapter", Context.class);
+            hook(getDefaultAdapter1).intercept(chain -> {
+                log(Log.INFO, TAG, "Blocked NfcAdapter.getDefaultAdapter(Context)");
+                return null;
+            });
+            log(Log.INFO, TAG, "hooked NfcAdapter.getDefaultAdapter(Context)");
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": Failed to hook NfcAdapter.getDefaultAdapter: " + t);
+            log(Log.WARN, TAG, "Failed to hook NfcAdapter.getDefaultAdapter(Context): " + t);
         }
 
         try {
-            // NfcAdapter.getDefaultAdapter() — exists on some Android versions
-            XposedHelpers.findAndHookMethod(NfcAdapter.class, "getDefaultAdapter",
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        Log.i(TAG, "Blocked NfcAdapter.getDefaultAdapter()");
-                        param.setResult(null);
-                    }
-                });
-            XposedBridge.log(TAG + ": hooked NfcAdapter.getDefaultAdapter()");
+            Method getDefaultAdapter2 = NfcAdapter.class.getMethod("getDefaultAdapter");
+            hook(getDefaultAdapter2).intercept(chain -> {
+                log(Log.INFO, TAG, "Blocked NfcAdapter.getDefaultAdapter()");
+                return null;
+            });
+            log(Log.INFO, TAG, "hooked NfcAdapter.getDefaultAdapter()");
         } catch (Throwable t) {
-            // no-op: this overload may not exist on this Android version
         }
     }
 
     private void hookNfcManager() {
         try {
-            // NfcManager.getDefaultAdapter()
-            XposedHelpers.findAndHookMethod(NfcManager.class, "getDefaultAdapter",
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        Log.i(TAG, "Blocked NfcManager.getDefaultAdapter()");
-                        param.setResult(null);
-                    }
-                });
-            XposedBridge.log(TAG + ": hooked NfcManager.getDefaultAdapter()");
+            Method nfcGetDefaultAdapter = NfcManager.class.getMethod("getDefaultAdapter");
+            hook(nfcGetDefaultAdapter).intercept(chain -> {
+                log(Log.INFO, TAG, "Blocked NfcManager.getDefaultAdapter()");
+                return null;
+            });
+            log(Log.INFO, TAG, "hooked NfcManager.getDefaultAdapter()");
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": Failed to hook NfcManager: " + t);
+            log(Log.WARN, TAG, "Failed to hook NfcManager: " + t);
         }
     }
 
