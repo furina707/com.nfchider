@@ -63,6 +63,24 @@ public class NfcHook extends XposedModule {
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed to hook hasSystemFeature: " + t);
         }
+
+        try {
+            Class<?> ipmProxyClass = param.getDefaultClassLoader()
+                    .loadClass("android.content.pm.IPackageManager$Stub$Proxy");
+
+            Method hasFeatureIpm = ipmProxyClass.getMethod("hasSystemFeature", String.class, int.class);
+            hook(hasFeatureIpm).intercept(chain -> {
+                if (isNfcFeature((String) chain.getArg(0))) {
+                    log(Log.INFO, TAG, "Blocked IPackageManager.hasSystemFeature(" + chain.getArg(0) + ", ver)");
+                    return false;
+                }
+                return chain.proceed();
+            });
+
+            log(Log.INFO, TAG, "hooked IPackageManager$Stub$Proxy.hasSystemFeature");
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook IPackageManager$Stub$Proxy.hasSystemFeature: " + t);
+        }
     }
 
     // ── 2. getSystemAvailableFeatures – filter NFC from the list ─────────────
@@ -97,6 +115,43 @@ public class NfcHook extends XposedModule {
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed to hook getSystemAvailableFeatures: " + t);
         }
+
+        try {
+            Class<?> ipmProxyClass = param.getDefaultClassLoader()
+                    .loadClass("android.content.pm.IPackageManager$Stub$Proxy");
+
+            Method getFeatures = ipmProxyClass.getMethod("getSystemAvailableFeatures");
+            hook(getFeatures).intercept(chain -> {
+                Object result = chain.proceed();
+                if (result == null) return null;
+                try {
+                    Method getListMethod = result.getClass().getMethod("getList");
+                    List<?> list = (List<?>) getListMethod.invoke(result);
+                    if (list != null) {
+                        List<Object> filtered = new ArrayList<>();
+                        Class<?> featureInfoClass = param.getDefaultClassLoader()
+                                .loadClass("android.content.pm.FeatureInfo");
+                        java.lang.reflect.Field nameField = featureInfoClass.getField("name");
+                        for (Object fi : list) {
+                            String name = (String) nameField.get(fi);
+                            if (!isNfcFeature(name)) {
+                                filtered.add(fi);
+                            } else {
+                                log(Log.INFO, TAG, "IPackageManager: Removed feature from list: " + name);
+                            }
+                        }
+                        java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
+                        return constr.newInstance(filtered);
+                    }
+                } catch (Throwable e) {
+                    log(Log.WARN, TAG, "Failed to filter IPackageManager ParceledListSlice: " + e);
+                }
+                return result;
+            });
+            log(Log.INFO, TAG, "hooked IPackageManager$Stub$Proxy.getSystemAvailableFeatures");
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook IPackageManager$Stub$Proxy.getSystemAvailableFeatures: " + t);
+        }
     }
 
     // ── 3. NfcAdapter ─────────────────────────────────────────────────────────
@@ -119,11 +174,58 @@ public class NfcHook extends XposedModule {
             });
         } catch (Throwable ignored) {}
 
+        // getNfcAdapter(Context)
+        try {
+            Method m = NfcAdapter.class.getMethod("getNfcAdapter", Context.class);
+            hook(m).intercept(chain -> {
+                log(Log.INFO, TAG, "Blocked NfcAdapter.getNfcAdapter(Context)");
+                return null;
+            });
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook NfcAdapter.getNfcAdapter(Context): " + t);
+        }
+
         // isEnabled() – return false in case the adapter is obtained via other paths
         try {
             Method m = NfcAdapter.class.getMethod("isEnabled");
             hook(m).intercept(chain -> {
                 log(Log.INFO, TAG, "Blocked NfcAdapter.isEnabled()");
+                return false;
+            });
+        } catch (Throwable ignored) {}
+
+        // getAdapterState()
+        try {
+            Method m = NfcAdapter.class.getMethod("getAdapterState");
+            hook(m).intercept(chain -> {
+                log(Log.INFO, TAG, "Blocked NfcAdapter.getAdapterState()");
+                return 1; // STATE_OFF
+            });
+        } catch (Throwable ignored) {}
+
+        // isNdefPushEnabled()
+        try {
+            Method m = NfcAdapter.class.getMethod("isNdefPushEnabled");
+            hook(m).intercept(chain -> {
+                log(Log.INFO, TAG, "Blocked NfcAdapter.isNdefPushEnabled()");
+                return false;
+            });
+        } catch (Throwable ignored) {}
+
+        // isSecureNfcSupported()
+        try {
+            Method m = NfcAdapter.class.getMethod("isSecureNfcSupported");
+            hook(m).intercept(chain -> {
+                log(Log.INFO, TAG, "Blocked NfcAdapter.isSecureNfcSupported()");
+                return false;
+            });
+        } catch (Throwable ignored) {}
+
+        // isSecureNfcEnabled()
+        try {
+            Method m = NfcAdapter.class.getMethod("isSecureNfcEnabled");
+            hook(m).intercept(chain -> {
+                log(Log.INFO, TAG, "Blocked NfcAdapter.isSecureNfcEnabled()");
                 return false;
             });
         } catch (Throwable ignored) {}
@@ -165,6 +267,25 @@ public class NfcHook extends XposedModule {
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed to hook getSystemService: " + t);
         }
+
+        try {
+            Class<?> ctxImplClass = param.getDefaultClassLoader()
+                    .loadClass("android.app.ContextImpl");
+            Method mClass = ctxImplClass.getMethod("getSystemService", Class.class);
+            hook(mClass).intercept(chain -> {
+                Class<?> serviceClass = (Class<?>) chain.getArg(0);
+                if (serviceClass != null && (NfcManager.class.getName().equals(serviceClass.getName()) 
+                        || "android.nfc.NfcManager".equals(serviceClass.getName()) 
+                        || "android.nfc.NfcAdapter".equals(serviceClass.getName()))) {
+                    log(Log.INFO, TAG, "Blocked getSystemService(Class: " + serviceClass.getName() + ")");
+                    return null;
+                }
+                return chain.proceed();
+            });
+            log(Log.INFO, TAG, "hooked ContextImpl.getSystemService(Class)");
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook getSystemService(Class): " + t);
+        }
     }
 
     // ── 6. ServiceManager.getService / checkService ───────────────────────────
@@ -174,7 +295,7 @@ public class NfcHook extends XposedModule {
             Class<?> smClass = param.getDefaultClassLoader()
                     .loadClass("android.os.ServiceManager");
 
-            for (String methodName : new String[]{"getService", "checkService"}) {
+            for (String methodName : new String[]{"getService", "checkService", "waitForService"}) {
                 try {
                     Method m = smClass.getMethod(methodName, String.class);
                     hook(m).intercept(chain -> {
@@ -190,6 +311,26 @@ public class NfcHook extends XposedModule {
                     log(Log.WARN, TAG, "Failed to hook ServiceManager." + methodName + ": " + t);
                 }
             }
+
+            try {
+                Method listServices = smClass.getMethod("listServices");
+                hook(listServices).intercept(chain -> {
+                    String[] services = (String[]) chain.proceed();
+                    if (services == null) return null;
+                    List<String> filtered = new ArrayList<>();
+                    for (String s : services) {
+                        if (s == null || !s.toLowerCase().contains("nfc")) {
+                            filtered.add(s);
+                        } else {
+                            log(Log.INFO, TAG, "Removed service from listServices: " + s);
+                        }
+                    }
+                    return filtered.toArray(new String[0]);
+                });
+                log(Log.INFO, TAG, "hooked ServiceManager.listServices");
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "Failed to hook ServiceManager.listServices: " + t);
+            }
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed to load ServiceManager: " + t);
         }
@@ -200,7 +341,8 @@ public class NfcHook extends XposedModule {
     private void hookSettings(PackageLoadedParam param) {
         ClassLoader cl = param.getDefaultClassLoader();
         for (String settingsClass : new String[]{"android.provider.Settings$Global",
-                                                  "android.provider.Settings$Secure"}) {
+                                                  "android.provider.Settings$Secure",
+                                                  "android.provider.Settings$System"}) {
             try {
                 Class<?> cls = cl.loadClass(settingsClass);
 

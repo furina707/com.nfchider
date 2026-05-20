@@ -15,5 +15,4 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NfcHider"
 include(":app")

@@ -46,5 +46,6 @@ android {
 }
 
 dependencies {
+    compileOnly("io.github.libxposed:api:101.0.1")
     compileOnly("androidx.annotation:annotation:1.9.1")
 }
