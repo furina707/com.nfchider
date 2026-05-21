@@ -60,7 +60,6 @@ android {
 
 dependencies {
     compileOnly("io.github.libxposed:api:101.0.1")
-    compileOnly("androidx.annotation:annotation:1.9.1")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
     implementation(composeBom)
