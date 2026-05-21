@@ -1,5 +1,6 @@
 package com.nfchider;
 
+import android.content.ContentResolver;
 import android.content.Context;
 import android.nfc.NfcAdapter;
 import android.nfc.NfcManager;
@@ -7,8 +8,15 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import io.github.libxposed.api.XposedModule;
@@ -52,6 +60,18 @@ public class NfcHook extends XposedModule {
 
         // 9. Hook Settings (Global, Secure, System) reflectively
         hookSettings(param);
+
+        // 10. Hook Runtime.exec() and ProcessBuilder to block shell-based detection
+        hookProcessAndShell(param);
+
+        // 11. Hook Class.forName to block loading NFC classes via reflection
+        hookClassForName(param);
+
+        // 12. Hook ContentResolver to block NFC content URIs
+        hookContentResolver(param);
+
+        // 13. Hook file reads on system config files that reveal NFC
+        hookSystemConfigReads(param);
     }
 
     // ── 1. PackageManager & IPackageManager reflective hooks ──────────────────
@@ -590,6 +610,264 @@ public class NfcHook extends XposedModule {
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed to load ServiceManager: " + t);
         }
+    }
+
+    // ── 10. Runtime.exec() / ProcessBuilder shell command hooks ─────────────────
+
+    private void hookProcessAndShell(PackageLoadedParam param) {
+        // Hook ProcessBuilder.start()
+        try {
+            Class<?> pbClass = param.getDefaultClassLoader().loadClass("java.lang.ProcessBuilder");
+            Method startMethod = pbClass.getMethod("start");
+            hook(startMethod).intercept(chain -> {
+                ProcessBuilder pb = (ProcessBuilder) chain.getThisObject();
+                List<String> cmd = pb.command();
+                if (cmd != null) {
+                    for (String arg : cmd) {
+                        if (arg != null && arg.toLowerCase().contains("nfc")) {
+                            log(Log.INFO, TAG, "Blocked ProcessBuilder command containing nfc: " + String.join(" ", cmd));
+                            // Return a dummy process that exits immediately
+                            return new DummyProcess();
+                        }
+                    }
+                    // Block getprop entirely - if it's used to check nfc props, block it
+                    String cmdStr = String.join(" ", cmd).toLowerCase();
+                    if (cmdStr.contains("getprop") && containsNfcPropertyCheck(cmd)) {
+                        log(Log.INFO, TAG, "Blocked getprop command that may reveal NFC: " + String.join(" ", cmd));
+                        return new DummyProcess();
+                    }
+                }
+                return chain.proceed();
+            });
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook ProcessBuilder.start(): " + t);
+        }
+
+        // Hook Runtime.exec() methods
+        try {
+            Class<?> rtClass = param.getDefaultClassLoader().loadClass("java.lang.Runtime");
+            for (Method m : rtClass.getDeclaredMethods()) {
+                if (m.getName().equals("exec")) {
+                    try {
+                        hook(m).intercept(chain -> {
+                            String cmdStr = "";
+                            for (int i = 0; i < chain.getArgs().size(); i++) {
+                                Object arg = chain.getArg(i);
+                                if (arg instanceof String) {
+                                    cmdStr = (String) arg;
+                                } else if (arg instanceof String[]) {
+                                    cmdStr = String.join(" ", (String[]) arg);
+                                }
+                            }
+                            if (cmdStr.toLowerCase().contains("nfc")) {
+                                log(Log.INFO, TAG, "Blocked Runtime.exec() containing nfc: " + cmdStr);
+                                return new DummyProcess();
+                            }
+                            return chain.proceed();
+                        });
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook Runtime.exec(): " + t);
+        }
+
+        log(Log.INFO, TAG, "hooked ProcessBuilder and Runtime.exec");
+    }
+
+    private boolean containsNfcPropertyCheck(List<String> cmd) {
+        for (String arg : cmd) {
+            if (arg != null && (arg.toLowerCase().contains("nfc")
+                    || arg.equals("ro.vendor.nfc")
+                    || arg.equals("persist.nfc")))
+                return true;
+        }
+        return false;
+    }
+
+    // Dummy process returned when blocking shell commands
+    private static class DummyProcess extends Process {
+        @Override public java.io.OutputStream getOutputStream() { return null; }
+        @Override public java.io.InputStream getInputStream() { return new java.io.ByteArrayInputStream(new byte[0]); }
+        @Override public java.io.InputStream getErrorStream() { return new java.io.ByteArrayInputStream(new byte[0]); }
+        @Override public int waitFor() { return 0; }
+        @Override public int exitValue() { return 0; }
+        @Override public void destroy() {}
+    }
+
+    // ── 11. Class.forName() blocking hook ─────────────────────────────────────
+
+    private void hookClassForName(PackageLoadedParam param) {
+        try {
+            Class<?> cls = param.getDefaultClassLoader().loadClass("java.lang.Class");
+            for (Method m : cls.getDeclaredMethods()) {
+                if (m.getName().equals("forName")) {
+                    try {
+                        hook(m).intercept(chain -> {
+                            if (chain.getArgs().size() > 0 && chain.getArg(0) instanceof String) {
+                                String className = (String) chain.getArg(0);
+                                if (className != null && className.toLowerCase().contains("nfc")) {
+                                    log(Log.INFO, TAG, "Blocked Class.forName(" + className + ")");
+                                    throw new ClassNotFoundException("NFC class blocked");
+                                }
+                            }
+                            return chain.proceed();
+                        });
+                    } catch (Throwable ignored) {}
+                }
+            }
+            log(Log.INFO, TAG, "hooked Class.forName for NFC blocking");
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook Class.forName: " + t);
+        }
+
+        // Also hook ClassLoader.loadClass
+        try {
+            Class<?> clClass = param.getDefaultClassLoader().loadClass("java.lang.ClassLoader");
+            for (Method m : clClass.getDeclaredMethods()) {
+                if (m.getName().equals("loadClass")) {
+                    try {
+                        hook(m).intercept(chain -> {
+                            if (chain.getArgs().size() > 0 && chain.getArg(0) instanceof String) {
+                                String className = (String) chain.getArg(0);
+                                if (className != null && className.toLowerCase().contains("nfc")) {
+                                    log(Log.INFO, TAG, "Blocked ClassLoader.loadClass(" + className + ")");
+                                    throw new ClassNotFoundException("NFC class blocked");
+                                }
+                            }
+                            return chain.proceed();
+                        });
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook ClassLoader.loadClass: " + t);
+        }
+    }
+
+    // ── 12. ContentResolver NFC URI blocking hook ─────────────────────────────
+
+    private void hookContentResolver(PackageLoadedParam param) {
+        try {
+            Class<?> crClass = param.getDefaultClassLoader().loadClass("android.content.ContentResolver");
+            for (Method m : crClass.getDeclaredMethods()) {
+                String name = m.getName();
+                if (name.equals("query") || name.equals("acquireContentProviderClient")) {
+                    try {
+                        hook(m).intercept(chain -> {
+                            if (chain.getArgs().size() > 0) {
+                                Object uri = chain.getArg(0);
+                                if (uri != null && uri.toString().toLowerCase().contains("nfc")) {
+                                    log(Log.INFO, TAG, "Blocked ContentResolver." + name + " for URI: " + uri);
+                                    return null;
+                                }
+                            }
+                            return chain.proceed();
+                        });
+                    } catch (Throwable ignored) {}
+                }
+            }
+            log(Log.INFO, TAG, "hooked ContentResolver for NFC URI blocking");
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook ContentResolver: " + t);
+        }
+    }
+
+    // ── 13. System config file read hook (block NFC content from build.prop etc) ──
+
+    private void hookSystemConfigReads(PackageLoadedParam param) {
+        // Hook FileInputStream.read(byte[]) to filter NFC content from system config files
+        try {
+            Method readBytes = FileInputStream.class.getMethod("read", byte[].class);
+            hook(readBytes).intercept(chain -> {
+                FileInputStream fis = (FileInputStream) chain.getThisObject();
+                // Check if this is a system config file that might contain NFC info
+                String fdPath = getFilePathFromFis(fis);
+                if (fdPath != null && isNfcLeakingConfigFile(fdPath)) {
+                    int ret = (int) chain.proceed();
+                    if (ret > 0) {
+                        byte[] buf = (byte[]) chain.getArg(0);
+                        String content = new String(buf, 0, ret, java.nio.charset.StandardCharsets.UTF_8);
+                        String filtered = filterNfcLines(content);
+                        if (!filtered.equals(content)) {
+                            byte[] filteredBytes = filtered.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                            int copyLen = Math.min(filteredBytes.length, buf.length);
+                            System.arraycopy(filteredBytes, 0, buf, 0, copyLen);
+                            log(Log.INFO, TAG, "Filtered NFC content from: " + fdPath);
+                            return copyLen;
+                        }
+                    }
+                    return ret;
+                }
+                return chain.proceed();
+            });
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook FileInputStream.read(byte[]): " + t);
+        }
+
+        // Hook BufferedReader.readLine() for filtering NFC lines from config files
+        try {
+            Method readLine = BufferedReader.class.getMethod("readLine");
+            hook(readLine).intercept(chain -> {
+                BufferedReader br = (BufferedReader) chain.getThisObject();
+                // Cannot easily get the file path from BufferedReader, so skip per-file check
+                // Just proceed normally - the FileInputStream hook above handles content filtering
+                return chain.proceed();
+            });
+        } catch (Throwable ignored) {}
+
+        log(Log.INFO, TAG, "hooked system config file reads");
+    }
+
+    private String getFilePathFromFis(FileInputStream fis) {
+        try {
+            Field pathField = FileInputStream.class.getDeclaredField("path");
+            pathField.setAccessible(true);
+            Object path = pathField.get(fis);
+            if (path instanceof String) return (String) path;
+            if (path instanceof File) return ((File) path).getPath();
+        } catch (Throwable ignored) {}
+        // Try another way - check fd
+        try {
+            java.lang.reflect.Field fdField = fis.getClass().getDeclaredField("fd");
+            fdField.setAccessible(true);
+            Object fdObj = fdField.get(fis);
+            if (fdObj != null) {
+                String fdStr = fdObj.toString();
+                if (fdStr.contains("/")) return fdStr.substring(fdStr.indexOf("/"));
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private boolean isNfcLeakingConfigFile(String path) {
+        if (path == null) return false;
+        String lower = path.toLowerCase();
+        return lower.contains("build.prop")
+                || lower.contains("default.prop")
+                || lower.contains("permissions")
+                || lower.contains("libnfc")
+                || lower.contains("nfc_config")
+                || lower.contains("system_config")
+                || lower.contains("device_features");
+    }
+
+    private String filterNfcLines(String content) {
+        if (content == null || content.isEmpty()) return content;
+        StringBuilder sb = new StringBuilder();
+        String[] lines = content.split("\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.toLowerCase().contains("nfc")) {
+                continue; // Skip NFC lines
+            }
+            if (i < lines.length - 1) {
+                sb.append(line).append("\n");
+            } else {
+                sb.append(line);
+            }
+        }
+        return sb.toString();
     }
 
     // ── 9. Settings.Global / Settings.Secure / Settings.System reflective hooks ──
