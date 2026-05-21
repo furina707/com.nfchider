@@ -6,6 +6,16 @@
         android:description="@string/app_description"
         android:allowBackup="false">
 
+        <activity
+            android:name=".SettingsActivity"
+            android:label="NFC Hider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <meta-data
             android:name="xposedmodule"
             android:value="true" />
