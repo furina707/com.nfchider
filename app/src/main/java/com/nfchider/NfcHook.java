@@ -363,7 +363,40 @@ public class NfcHook extends XposedModule {
                 });
             } catch (Throwable ignored) {}
 
-            log(Log.INFO, TAG, "hooked java.io.File methods");
+            // Hook java.io.FileInputStream constructors to block reading NFC config files
+            Class<?> fisClass = java.io.FileInputStream.class;
+            try {
+                java.lang.reflect.Constructor<?> constrString = fisClass.getConstructor(String.class);
+                hook(constrString).intercept(chain -> {
+                    String path = (String) chain.getArg(0);
+                    if (path != null && path.toLowerCase().contains("nfc")) {
+                        log(Log.INFO, TAG, "Blocked FileInputStream(String) for path: " + path);
+                        throw new java.io.FileNotFoundException("NFC file blocked by Hider");
+                    }
+                    return chain.proceed();
+                });
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "Failed to hook FileInputStream(String): " + t);
+            }
+
+            try {
+                java.lang.reflect.Constructor<?> constrFile = fisClass.getConstructor(java.io.File.class);
+                hook(constrFile).intercept(chain -> {
+                    java.io.File file = (java.io.File) chain.getArg(0);
+                    if (file != null) {
+                        String path = file.getPath();
+                        if (path != null && path.toLowerCase().contains("nfc")) {
+                            log(Log.INFO, TAG, "Blocked FileInputStream(File) for path: " + path);
+                            throw new java.io.FileNotFoundException("NFC file blocked by Hider");
+                        }
+                    }
+                    return chain.proceed();
+                });
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "Failed to hook FileInputStream(File): " + t);
+            }
+
+            log(Log.INFO, TAG, "hooked java.io.File and FileInputStream methods");
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed to hook java.io.File: " + t);
         }
