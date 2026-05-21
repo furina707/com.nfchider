@@ -191,10 +191,11 @@ public class NfcHook extends XposedModule {
                                         log(Log.WARN, TAG, "Failed to reconstruct ParceledListSlice for binder features: " + t);
                                         return filtered;
                                     }
-                                } catch (Throwable t) {
-                                    log(Log.WARN, TAG, "Failed to process binder features list: " + t);
                                 }
+                            } catch (Throwable t) {
+                                log(Log.WARN, TAG, "Failed to get list from ParceledListSlice for features: " + t);
                             }
+                        }
                         return result;
                     });
                 } else if (name.equals("getInstalledPackages") || name.equals("getInstalledPackagesAsUser")
