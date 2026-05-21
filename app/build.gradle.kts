@@ -26,7 +26,7 @@ android {
             }
         }
 
-        create("debug") {
+        create("ciDebug") {
             storeFile = file(rootProject.projectDir.resolve("debug.keystore"))
             storePassword = "android"
             keyAlias = "debug"
@@ -36,7 +36,7 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.findByName("debug")
+            signingConfig = signingConfigs.findByName("ciDebug")
         }
         release {
             isMinifyEnabled = false
