@@ -25,9 +25,19 @@ android {
                 keyPassword = System.getenv("KEY_PASSWORD") ?: ""
             }
         }
+
+        create("debug") {
+            storeFile = file(rootProject.projectDir.resolve("debug.keystore"))
+            storePassword = "android"
+            keyAlias = "debug"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.findByName("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

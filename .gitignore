@@ -9,4 +9,4 @@ local.properties
 *.apk
 *.aab
 *.jks
-*.keystore
+!debug.keystore

@@ -4,6 +4,8 @@
 
 An Xposed module that hides NFC (Near Field Communication) from selected apps on Android.
 
+**Current version: 1.1**
+
 ## Usage
 
 1. Install the module in Xposed Installer / LSPosed
