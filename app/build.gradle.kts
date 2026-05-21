@@ -68,6 +68,10 @@ android {
     }
 }
 
+configurations.implementation {
+    exclude(group = "androidx.startup", module = "startup-runtime")
+}
+
 dependencies {
     compileOnly("io.github.libxposed:api:101.0.1")
 
