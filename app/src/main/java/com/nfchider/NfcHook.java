@@ -137,7 +137,6 @@ public class NfcHook extends XposedModule {
                         Object result = chain.proceed();
                         if (result == null) return null;
 
-                        // Check if it is a ParceledListSlice (binder proxy level) or simple array (PackageManager level)
                         if (result instanceof Object[]) {
                             Object[] features = (Object[]) result;
                             List<Object> filtered = new ArrayList<>();
@@ -150,15 +149,21 @@ public class NfcHook extends XposedModule {
                                             log(Log.INFO, TAG, "Filtered out feature: " + fName);
                                             continue;
                                         }
-                                    } catch (Throwable ignored) {}
+                                    } catch (Throwable t) {
+                                        log(Log.WARN, TAG, "Failed to get feature name field: " + t);
+                                    }
                                 }
                                 filtered.add(fi);
                             }
-                            Object[] arr = (Object[]) java.lang.reflect.Array.newInstance(
-                                    result.getClass().getComponentType(), filtered.size());
-                            return filtered.toArray(arr);
+                            Class<?> componentType = result.getClass().getComponentType();
+                            if (componentType.equals(Object.class)) {
+                                Object[] arr = (Object[]) java.lang.reflect.Array.newInstance(componentType, filtered.size());
+                                return filtered.toArray(arr);
+                            } else {
+                                log(Log.WARN, TAG, "Unexpected component type: " + componentType.getName() + ", returning original result");
+                                return result;
+                            }
                         } else {
-                            // ParceledListSlice support
                             try {
                                 Method getListMethod = result.getClass().getMethod("getList");
                                 List<?> list = (List<?>) getListMethod.invoke(result);
@@ -173,15 +178,23 @@ public class NfcHook extends XposedModule {
                                                     log(Log.INFO, TAG, "Filtered out binder feature: " + fName);
                                                     continue;
                                                 }
-                                            } catch (Throwable ignored) {}
+                                            } catch (Throwable t) {
+                                                log(Log.WARN, TAG, "Failed to get binder feature name: " + t);
+                                            }
                                         }
                                         filtered.add(fi);
                                     }
-                                    java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
-                                    return constr.newInstance(filtered);
+                                    try {
+                                        java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
+                                        return constr.newInstance(filtered);
+                                    } catch (Throwable t) {
+                                        log(Log.WARN, TAG, "Failed to reconstruct ParceledListSlice for binder features: " + t);
+                                        return filtered;
+                                    }
+                                } catch (Throwable t) {
+                                    log(Log.WARN, TAG, "Failed to process binder features list: " + t);
                                 }
-                            } catch (Throwable ignored) {}
-                        }
+                            }
                         return result;
                     });
                 } else if (name.equals("getInstalledPackages") || name.equals("getInstalledPackagesAsUser")
@@ -199,7 +212,9 @@ public class NfcHook extends XposedModule {
                                 Method getListMethod = result.getClass().getMethod("getList");
                                 list = (List<?>) getListMethod.invoke(result);
                                 isParceledListSlice = true;
-                            } catch (Throwable ignored) {}
+                            } catch (Throwable t) {
+                                log(Log.WARN, TAG, "Failed to get list from ParceledListSlice: " + t);
+                            }
                         }
 
                         if (list != null) {
@@ -213,7 +228,9 @@ public class NfcHook extends XposedModule {
                                             log(Log.INFO, TAG, "Filtered out package: " + pkgName);
                                             continue;
                                         }
-                                    } catch (Throwable ignored) {}
+                                    } catch (Throwable t) {
+                                        log(Log.WARN, TAG, "Failed to get package name field: " + t);
+                                    }
                                 }
                                 filtered.add(item);
                             }
@@ -222,7 +239,10 @@ public class NfcHook extends XposedModule {
                                 try {
                                     java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
                                     return constr.newInstance(filtered);
-                                } catch (Throwable ignored) {}
+                                } catch (Throwable t) {
+                                    log(Log.WARN, TAG, "Failed to reconstruct ParceledListSlice, returning filtered List: " + t);
+                                    return filtered;
+                                }
                             } else {
                                 return filtered;
                             }
@@ -252,7 +272,9 @@ public class NfcHook extends XposedModule {
                                 Method getListMethod = result.getClass().getMethod("getList");
                                 list = (List<?>) getListMethod.invoke(result);
                                 isParceledListSlice = true;
-                            } catch (Throwable ignored) {}
+                            } catch (Throwable t) {
+                                log(Log.WARN, TAG, "Failed to get list from ParceledListSlice for intent query: " + t);
+                            }
                         }
 
                         if (list != null) {
@@ -278,7 +300,9 @@ public class NfcHook extends XposedModule {
                                                 continue;
                                             }
                                         }
-                                    } catch (Throwable ignored) {}
+                                    } catch (Throwable t) {
+                                        log(Log.WARN, TAG, "Failed to get resolve info fields: " + t);
+                                    }
                                 }
                                 filtered.add(ri);
                             }
@@ -287,7 +311,10 @@ public class NfcHook extends XposedModule {
                                 try {
                                     java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
                                     return constr.newInstance(filtered);
-                                } catch (Throwable ignored) {}
+                                } catch (Throwable t) {
+                                    log(Log.WARN, TAG, "Failed to reconstruct ParceledListSlice for intent resolve, returning filtered List: " + t);
+                                    return filtered;
+                                }
                             } else {
                                 return filtered;
                             }
@@ -295,7 +322,9 @@ public class NfcHook extends XposedModule {
                         return result;
                     });
                 }
-            } catch (Throwable ignored) {}
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "Failed to hook PackageManager method: " + t);
+            }
         }
         log(Log.INFO, TAG, "hooked PackageManager class: " + cls.getName());
     }
@@ -313,7 +342,7 @@ public class NfcHook extends XposedModule {
                             String key = (String) chain.getArg(0);
                             if (key != null && key.toLowerCase().contains("nfc")) {
                                 log(Log.INFO, TAG, "Blocked SystemProperties." + chain.getExecutable().getName() + "(" + key + ")");
-                                Class<?> returnType = method.getReturnType();
+                                Class<?> returnType = chain.getExecutable().getReturnType();
                                 if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
                                     return false;
                                 }
@@ -337,7 +366,9 @@ public class NfcHook extends XposedModule {
                         }
                         return chain.proceed();
                     });
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    log(Log.WARN, TAG, "Failed to hook SystemProperties method: " + t);
+                }
             }
             log(Log.INFO, TAG, "hooked android.os.SystemProperties reflectively");
         } catch (Throwable t) {
@@ -365,7 +396,9 @@ public class NfcHook extends XposedModule {
                         }
                         return chain.proceed();
                     });
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    log(Log.WARN, TAG, "Failed to hook File method: " + t);
+                }
             }
 
             try {
@@ -381,8 +414,9 @@ public class NfcHook extends XposedModule {
                     }
                     return chain.proceed();
                 });
-            } catch (Throwable ignored) {}
-
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "Failed to hook File.length: " + t);
+            }
             // Hook java.io.FileInputStream constructors to block reading NFC config files
             Class<?> fisClass = java.io.FileInputStream.class;
             try {
@@ -434,16 +468,18 @@ public class NfcHook extends XposedModule {
                                 log(Log.INFO, TAG, "Blocked static NfcAdapter method returning adapter: " + chain.getExecutable().getName());
                                 return null;
                             });
-                        } catch (Throwable ignored) {}
+                        } catch (Throwable t) {
+                            log(Log.WARN, TAG, "Failed to hook static NfcAdapter method: " + t);
+                        }
                     }
                 } else {
                     try {
                         hook(method).intercept(chain -> {
                             String name = chain.getExecutable().getName();
-                            Class<?> returnType = method.getReturnType();
+                            Class<?> returnType = chain.getExecutable().getReturnType();
                             log(Log.INFO, TAG, "Intercepted NfcAdapter method: " + name + ", return type: " + returnType.getName());
                             if (name.equals("getAdapterState")) {
-                                return 1; // STATE_OFF
+                                return 1;
                             }
                             if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
                                 return false;
@@ -456,7 +492,9 @@ public class NfcHook extends XposedModule {
                             }
                             return null;
                         });
-                    } catch (Throwable ignored) {}
+                    } catch (Throwable t) {
+                        log(Log.WARN, TAG, "Failed to hook NfcAdapter method: " + t);
+                    }
                 }
             }
             log(Log.INFO, TAG, "hooked NfcAdapter reflectively");
@@ -473,7 +511,7 @@ public class NfcHook extends XposedModule {
                 try {
                     hook(method).intercept(chain -> {
                         String name = chain.getExecutable().getName();
-                        Class<?> returnType = method.getReturnType();
+                        Class<?> returnType = chain.getExecutable().getReturnType();
                         log(Log.INFO, TAG, "Intercepted NfcManager method: " + name);
                         if (returnType.equals(NfcAdapter.class)) {
                             return null;
@@ -489,7 +527,9 @@ public class NfcHook extends XposedModule {
                         }
                         return null;
                     });
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    log(Log.WARN, TAG, "Failed to hook NfcManager method: " + t);
+                }
             }
             log(Log.INFO, TAG, "hooked NfcManager reflectively");
         } catch (Throwable t) {
@@ -507,7 +547,7 @@ public class NfcHook extends XposedModule {
                 try {
                     hook(method).intercept(chain -> {
                         String name = chain.getExecutable().getName();
-                        Class<?> returnType = method.getReturnType();
+                        Class<?> returnType = chain.getExecutable().getReturnType();
                         log(Log.INFO, TAG, "Intercepted CardEmulation method: " + name);
                         if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
                             return false;
@@ -520,7 +560,9 @@ public class NfcHook extends XposedModule {
                         }
                         return null;
                     });
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    log(Log.WARN, TAG, "Failed to hook CardEmulation method: " + t);
+                }
             }
             log(Log.INFO, TAG, "hooked android.nfc.cardemulation.CardEmulation reflectively");
         } catch (Throwable t) {
@@ -665,7 +707,9 @@ public class NfcHook extends XposedModule {
                             }
                             return chain.proceed();
                         });
-                    } catch (Throwable ignored) {}
+                    } catch (Throwable t) {
+                        log(Log.WARN, TAG, "Failed to hook Runtime.exec method: " + t);
+                    }
                 }
             }
         } catch (Throwable t) {
@@ -713,7 +757,9 @@ public class NfcHook extends XposedModule {
                             }
                             return chain.proceed();
                         });
-                    } catch (Throwable ignored) {}
+                    } catch (Throwable t) {
+                        log(Log.WARN, TAG, "Failed to hook Class.forName method: " + t);
+                    }
                 }
             }
             log(Log.INFO, TAG, "hooked Class.forName for NFC blocking");
@@ -721,7 +767,6 @@ public class NfcHook extends XposedModule {
             log(Log.WARN, TAG, "Failed to hook Class.forName: " + t);
         }
 
-        // Also hook ClassLoader.loadClass
         try {
             Class<?> clClass = param.getDefaultClassLoader().loadClass("java.lang.ClassLoader");
             for (Method m : clClass.getDeclaredMethods()) {
@@ -737,7 +782,9 @@ public class NfcHook extends XposedModule {
                             }
                             return chain.proceed();
                         });
-                    } catch (Throwable ignored) {}
+                    } catch (Throwable t) {
+                        log(Log.WARN, TAG, "Failed to hook ClassLoader.loadClass method: " + t);
+                    }
                 }
             }
         } catch (Throwable t) {
@@ -764,7 +811,9 @@ public class NfcHook extends XposedModule {
                             }
                             return chain.proceed();
                         });
-                    } catch (Throwable ignored) {}
+                    } catch (Throwable t) {
+                        log(Log.WARN, TAG, "Failed to hook ContentResolver method: " + t);
+                    }
                 }
             }
             log(Log.INFO, TAG, "hooked ContentResolver for NFC URI blocking");
@@ -810,11 +859,11 @@ public class NfcHook extends XposedModule {
             Method readLine = BufferedReader.class.getMethod("readLine");
             hook(readLine).intercept(chain -> {
                 BufferedReader br = (BufferedReader) chain.getThisObject();
-                // Cannot easily get the file path from BufferedReader, so skip per-file check
-                // Just proceed normally - the FileInputStream hook above handles content filtering
                 return chain.proceed();
             });
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook BufferedReader.readLine: " + t);
+        }
 
         log(Log.INFO, TAG, "hooked system config file reads");
     }
@@ -826,8 +875,9 @@ public class NfcHook extends XposedModule {
             Object path = pathField.get(fis);
             if (path instanceof String) return (String) path;
             if (path instanceof File) return ((File) path).getPath();
-        } catch (Throwable ignored) {}
-        // Try another way - check fd
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to get path from FileInputStream: " + t);
+        }
         try {
             java.lang.reflect.Field fdField = fis.getClass().getDeclaredField("fd");
             fdField.setAccessible(true);
@@ -836,7 +886,9 @@ public class NfcHook extends XposedModule {
                 String fdStr = fdObj.toString();
                 if (fdStr.contains("/")) return fdStr.substring(fdStr.indexOf("/"));
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to get fd from FileInputStream: " + t);
+        }
         return null;
     }
 
@@ -887,7 +939,7 @@ public class NfcHook extends XposedModule {
                                     String key = (String) chain.getArg(1);
                                     if (key != null && key.toLowerCase().contains("nfc")) {
                                         log(Log.INFO, TAG, "Blocked Settings method " + chain.getExecutable().getName() + "(" + key + ")");
-                                        Class<?> returnType = method.getReturnType();
+                                        Class<?> returnType = chain.getExecutable().getReturnType();
                                         if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
                                             return false;
                                         }
@@ -908,7 +960,9 @@ public class NfcHook extends XposedModule {
                                 }
                                 return chain.proceed();
                             });
-                        } catch (Throwable ignored) {}
+                        } catch (Throwable t) {
+                            log(Log.WARN, TAG, "Failed to hook Settings method: " + t);
+                        }
                     }
                 }
             } catch (Throwable t) {
