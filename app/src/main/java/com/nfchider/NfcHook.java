@@ -24,231 +24,458 @@ public class NfcHook extends XposedModule {
         if (!TARGET_PKG.equals(param.getPackageName())) {
             return;
         }
-        log(Log.INFO, TAG, "Hooking Alipay NFC detection");
-        hookHasSystemFeature(param);
-        hookGetSystemAvailableFeatures(param);
+        log(Log.INFO, TAG, "Hooking Alipay NFC detection with comprehensive advanced hooks");
+
+        // 1. Hook PackageManager & IPackageManager reflectively
+        hookPackageManager(param);
+
+        // 2. Hook SystemProperties reflectively
+        hookSystemProperties(param);
+
+        // 3. Hook java.io.File to intercept NFC device/file queries
+        hookFilesystem();
+
+        // 4. Hook NfcAdapter reflectively for ALL methods
         hookNfcAdapter();
+
+        // 5. Hook NfcManager reflectively for ALL methods
         hookNfcManager();
+
+        // 6. Hook CardEmulation reflectively
+        hookCardEmulation(param);
+
+        // 7. Hook ContextImpl.getSystemService to return null for NFC services
         hookGetSystemService(param);
+
+        // 8. Hook ServiceManager.getService / checkService / listServices
         hookServiceManager(param);
+
+        // 9. Hook Settings (Global, Secure, System) reflectively
         hookSettings(param);
     }
 
-    // ── 1. hasSystemFeature ───────────────────────────────────────────────────
+    // ── 1. PackageManager & IPackageManager reflective hooks ──────────────────
 
-    private void hookHasSystemFeature(PackageLoadedParam param) {
+    private void hookPackageManager(PackageLoadedParam param) {
         try {
             Class<?> appPmClass = param.getDefaultClassLoader()
                     .loadClass("android.app.ApplicationPackageManager");
-
-            Method hasFeature1 = appPmClass.getMethod("hasSystemFeature", String.class);
-            hook(hasFeature1).intercept(chain -> {
-                if (isNfcFeature((String) chain.getArg(0))) {
-                    log(Log.INFO, TAG, "Blocked hasSystemFeature(" + chain.getArg(0) + ")");
-                    return false;
-                }
-                return chain.proceed();
-            });
-
-            Method hasFeature2 = appPmClass.getMethod("hasSystemFeature", String.class, int.class);
-            hook(hasFeature2).intercept(chain -> {
-                if (isNfcFeature((String) chain.getArg(0))) {
-                    log(Log.INFO, TAG, "Blocked hasSystemFeature(" + chain.getArg(0) + ", ver)");
-                    return false;
-                }
-                return chain.proceed();
-            });
-
-            log(Log.INFO, TAG, "hooked ApplicationPackageManager.hasSystemFeature");
+            hookPackageManagerClass(appPmClass);
         } catch (Throwable t) {
-            log(Log.WARN, TAG, "Failed to hook hasSystemFeature: " + t);
+            log(Log.WARN, TAG, "Failed to load ApplicationPackageManager: " + t);
         }
 
         try {
             Class<?> ipmProxyClass = param.getDefaultClassLoader()
                     .loadClass("android.content.pm.IPackageManager$Stub$Proxy");
-
-            Method hasFeatureIpm = ipmProxyClass.getMethod("hasSystemFeature", String.class, int.class);
-            hook(hasFeatureIpm).intercept(chain -> {
-                if (isNfcFeature((String) chain.getArg(0))) {
-                    log(Log.INFO, TAG, "Blocked IPackageManager.hasSystemFeature(" + chain.getArg(0) + ", ver)");
-                    return false;
-                }
-                return chain.proceed();
-            });
-
-            log(Log.INFO, TAG, "hooked IPackageManager$Stub$Proxy.hasSystemFeature");
+            hookPackageManagerClass(ipmProxyClass);
         } catch (Throwable t) {
-            log(Log.WARN, TAG, "Failed to hook IPackageManager$Stub$Proxy.hasSystemFeature: " + t);
+            log(Log.WARN, TAG, "Failed to load IPackageManager$Stub$Proxy: " + t);
         }
     }
 
-    // ── 2. getSystemAvailableFeatures – filter NFC from the list ─────────────
-
-    private void hookGetSystemAvailableFeatures(PackageLoadedParam param) {
-        try {
-            Class<?> appPmClass = param.getDefaultClassLoader()
-                    .loadClass("android.app.ApplicationPackageManager");
-            Method m = appPmClass.getMethod("getSystemAvailableFeatures");
-            hook(m).intercept(chain -> {
-                Object result = chain.proceed();
-                if (result == null) return null;
-                // result is android.content.pm.FeatureInfo[]
-                Class<?> featureInfoClass = param.getDefaultClassLoader()
-                        .loadClass("android.content.pm.FeatureInfo");
-                java.lang.reflect.Field nameField = featureInfoClass.getField("name");
-                Object[] features = (Object[]) result;
-                List<Object> filtered = new ArrayList<>();
-                for (Object fi : features) {
-                    String name = (String) nameField.get(fi);
-                    if (!isNfcFeature(name)) {
-                        filtered.add(fi);
-                    } else {
-                        log(Log.INFO, TAG, "Removed feature from list: " + name);
-                    }
-                }
-                Object[] arr = (Object[]) java.lang.reflect.Array
-                        .newInstance(featureInfoClass, filtered.size());
-                return filtered.toArray(arr);
-            });
-            log(Log.INFO, TAG, "hooked getSystemAvailableFeatures");
-        } catch (Throwable t) {
-            log(Log.WARN, TAG, "Failed to hook getSystemAvailableFeatures: " + t);
-        }
-
-        try {
-            Class<?> ipmProxyClass = param.getDefaultClassLoader()
-                    .loadClass("android.content.pm.IPackageManager$Stub$Proxy");
-
-            Method getFeatures = ipmProxyClass.getMethod("getSystemAvailableFeatures");
-            hook(getFeatures).intercept(chain -> {
-                Object result = chain.proceed();
-                if (result == null) return null;
-                try {
-                    Method getListMethod = result.getClass().getMethod("getList");
-                    List<?> list = (List<?>) getListMethod.invoke(result);
-                    if (list != null) {
-                        List<Object> filtered = new ArrayList<>();
-                        Class<?> featureInfoClass = param.getDefaultClassLoader()
-                                .loadClass("android.content.pm.FeatureInfo");
-                        java.lang.reflect.Field nameField = featureInfoClass.getField("name");
-                        for (Object fi : list) {
-                            String name = (String) nameField.get(fi);
-                            if (!isNfcFeature(name)) {
-                                filtered.add(fi);
-                            } else {
-                                log(Log.INFO, TAG, "IPackageManager: Removed feature from list: " + name);
+    private void hookPackageManagerClass(Class<?> cls) {
+        if (cls == null) return;
+        for (Method method : cls.getDeclaredMethods()) {
+            String name = method.getName();
+            try {
+                if (name.equals("getPackageInfo") || name.equals("getPackageInfoAsUser")) {
+                    hook(method).intercept(chain -> {
+                        if (chain.getArgs().size() > 0 && chain.getArg(0) instanceof String) {
+                            String pkg = (String) chain.getArg(0);
+                            if (pkg != null && pkg.toLowerCase().contains("nfc")) {
+                                log(Log.INFO, TAG, "Blocked " + cls.getSimpleName() + "." + name + "(" + pkg + ")");
+                                throw new android.content.pm.PackageManager.NameNotFoundException(pkg);
                             }
                         }
-                        java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
-                        return constr.newInstance(filtered);
-                    }
-                } catch (Throwable e) {
-                    log(Log.WARN, TAG, "Failed to filter IPackageManager ParceledListSlice: " + e);
+                        return chain.proceed();
+                    });
+                } else if (name.equals("getApplicationInfo") || name.equals("getApplicationInfoAsUser")) {
+                    hook(method).intercept(chain -> {
+                        if (chain.getArgs().size() > 0 && chain.getArg(0) instanceof String) {
+                            String pkg = (String) chain.getArg(0);
+                            if (pkg != null && pkg.toLowerCase().contains("nfc")) {
+                                log(Log.INFO, TAG, "Blocked " + cls.getSimpleName() + "." + name + "(" + pkg + ")");
+                                throw new android.content.pm.PackageManager.NameNotFoundException(pkg);
+                            }
+                        }
+                        return chain.proceed();
+                    });
+                } else if (name.equals("hasSystemFeature")) {
+                    hook(method).intercept(chain -> {
+                        if (chain.getArgs().size() > 0 && chain.getArg(0) instanceof String) {
+                            String feature = (String) chain.getArg(0);
+                            if (feature != null && feature.toLowerCase().contains("nfc")) {
+                                log(Log.INFO, TAG, "Blocked " + cls.getSimpleName() + ".hasSystemFeature(" + feature + ")");
+                                return false;
+                            }
+                        }
+                        return chain.proceed();
+                    });
+                } else if (name.equals("getSystemAvailableFeatures")) {
+                    hook(method).intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (result == null) return null;
+
+                        // Check if it is a ParceledListSlice (binder proxy level) or simple array (PackageManager level)
+                        if (result instanceof Object[]) {
+                            Object[] features = (Object[]) result;
+                            List<Object> filtered = new ArrayList<>();
+                            for (Object fi : features) {
+                                if (fi != null) {
+                                    try {
+                                        java.lang.reflect.Field nameField = fi.getClass().getField("name");
+                                        String fName = (String) nameField.get(fi);
+                                        if (fName != null && fName.toLowerCase().contains("nfc")) {
+                                            log(Log.INFO, TAG, "Filtered out feature: " + fName);
+                                            continue;
+                                        }
+                                    } catch (Throwable ignored) {}
+                                }
+                                filtered.add(fi);
+                            }
+                            Object[] arr = (Object[]) java.lang.reflect.Array.newInstance(
+                                    result.getClass().getComponentType(), filtered.size());
+                            return filtered.toArray(arr);
+                        } else {
+                            // ParceledListSlice support
+                            try {
+                                Method getListMethod = result.getClass().getMethod("getList");
+                                List<?> list = (List<?>) getListMethod.invoke(result);
+                                if (list != null) {
+                                    List<Object> filtered = new ArrayList<>();
+                                    for (Object fi : list) {
+                                        if (fi != null) {
+                                            try {
+                                                java.lang.reflect.Field nameField = fi.getClass().getField("name");
+                                                String fName = (String) nameField.get(fi);
+                                                if (fName != null && fName.toLowerCase().contains("nfc")) {
+                                                    log(Log.INFO, TAG, "Filtered out binder feature: " + fName);
+                                                    continue;
+                                                }
+                                            } catch (Throwable ignored) {}
+                                        }
+                                        filtered.add(fi);
+                                    }
+                                    java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
+                                    return constr.newInstance(filtered);
+                                }
+                            } catch (Throwable ignored) {}
+                        }
+                        return result;
+                    });
+                } else if (name.equals("getInstalledPackages") || name.equals("getInstalledPackagesAsUser")
+                        || name.equals("getInstalledApplications") || name.equals("getInstalledApplicationsAsUser")) {
+                    hook(method).intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (result == null) return null;
+
+                        List<?> list = null;
+                        boolean isParceledListSlice = false;
+                        if (result instanceof List) {
+                            list = (List<?>) result;
+                        } else {
+                            try {
+                                Method getListMethod = result.getClass().getMethod("getList");
+                                list = (List<?>) getListMethod.invoke(result);
+                                isParceledListSlice = true;
+                            } catch (Throwable ignored) {}
+                        }
+
+                        if (list != null) {
+                            List<Object> filtered = new ArrayList<>();
+                            for (Object item : list) {
+                                if (item != null) {
+                                    try {
+                                        java.lang.reflect.Field pkgField = item.getClass().getField("packageName");
+                                        String pkgName = (String) pkgField.get(item);
+                                        if (pkgName != null && pkgName.toLowerCase().contains("nfc")) {
+                                            log(Log.INFO, TAG, "Filtered out package: " + pkgName);
+                                            continue;
+                                        }
+                                    } catch (Throwable ignored) {}
+                                }
+                                filtered.add(item);
+                            }
+
+                            if (isParceledListSlice) {
+                                try {
+                                    java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
+                                    return constr.newInstance(filtered);
+                                } catch (Throwable ignored) {}
+                            } else {
+                                return filtered;
+                            }
+                        }
+                        return result;
+                    });
+                } else if (name.equals("queryIntentActivities") || name.equals("queryIntentActivitiesAsUser")
+                        || name.equals("queryIntentServices") || name.equals("queryIntentServicesAsUser")
+                        || name.equals("queryIntentReceivers") || name.equals("queryIntentReceiversAsUser")) {
+                    hook(method).intercept(chain -> {
+                        if (chain.getArgs().size() > 0 && chain.getArg(0) instanceof android.content.Intent) {
+                            android.content.Intent intent = (android.content.Intent) chain.getArg(0);
+                            if (intent.getAction() != null && intent.getAction().toLowerCase().contains("nfc")) {
+                                log(Log.INFO, TAG, "Blocked " + cls.getSimpleName() + "." + name + " for action: " + intent.getAction());
+                                return new ArrayList<>();
+                            }
+                        }
+                        Object result = chain.proceed();
+                        if (result == null) return null;
+
+                        List<?> list = null;
+                        boolean isParceledListSlice = false;
+                        if (result instanceof List) {
+                            list = (List<?>) result;
+                        } else {
+                            try {
+                                Method getListMethod = result.getClass().getMethod("getList");
+                                list = (List<?>) getListMethod.invoke(result);
+                                isParceledListSlice = true;
+                            } catch (Throwable ignored) {}
+                        }
+
+                        if (list != null) {
+                            List<Object> filtered = new ArrayList<>();
+                            for (Object ri : list) {
+                                if (ri != null) {
+                                    try {
+                                        java.lang.reflect.Field actField = ri.getClass().getField("activityInfo");
+                                        Object info = actField.get(ri);
+                                        if (info == null) {
+                                            java.lang.reflect.Field srvField = ri.getClass().getField("serviceInfo");
+                                            info = srvField.get(ri);
+                                        }
+                                        if (info == null) {
+                                            java.lang.reflect.Field provField = ri.getClass().getField("providerInfo");
+                                            info = provField.get(ri);
+                                        }
+                                        if (info != null) {
+                                            java.lang.reflect.Field pkgField = info.getClass().getField("packageName");
+                                            String pkgName = (String) pkgField.get(info);
+                                            if (pkgName != null && pkgName.toLowerCase().contains("nfc")) {
+                                                log(Log.INFO, TAG, "Filtered out intent resolve: " + pkgName);
+                                                continue;
+                                            }
+                                        }
+                                    } catch (Throwable ignored) {}
+                                }
+                                filtered.add(ri);
+                            }
+
+                            if (isParceledListSlice) {
+                                try {
+                                    java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
+                                    return constr.newInstance(filtered);
+                                } catch (Throwable ignored) {}
+                            } else {
+                                return filtered;
+                            }
+                        }
+                        return result;
+                    });
                 }
-                return result;
-            });
-            log(Log.INFO, TAG, "hooked IPackageManager$Stub$Proxy.getSystemAvailableFeatures");
+            } catch (Throwable ignored) {}
+        }
+        log(Log.INFO, TAG, "hooked PackageManager class: " + cls.getName());
+    }
+
+    // ── 2. SystemProperties reflective hooks ─────────────────────────────────
+
+    private void hookSystemProperties(PackageLoadedParam param) {
+        try {
+            Class<?> sysPropClass = param.getDefaultClassLoader()
+                    .loadClass("android.os.SystemProperties");
+            for (Method method : sysPropClass.getDeclaredMethods()) {
+                try {
+                    hook(method).intercept(chain -> {
+                        if (chain.getArgs().size() > 0 && chain.getArg(0) instanceof String) {
+                            String key = (String) chain.getArg(0);
+                            if (key != null && key.toLowerCase().contains("nfc")) {
+                                log(Log.INFO, TAG, "Blocked SystemProperties." + chain.getExecutable().getName() + "(" + key + ")");
+                                Class<?> returnType = method.getReturnType();
+                                if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
+                                    return false;
+                                }
+                                if (returnType.equals(int.class) || returnType.equals(Integer.class)) {
+                                    return 0;
+                                }
+                                if (returnType.equals(long.class) || returnType.equals(Long.class)) {
+                                    return 0L;
+                                }
+                                if (returnType.equals(String.class)) {
+                                    if (chain.getArgs().size() > 1 && chain.getArg(1) instanceof String) {
+                                        return chain.getArg(1);
+                                    }
+                                    return "";
+                                }
+                                if (chain.getArgs().size() > 1) {
+                                    return chain.getArg(chain.getArgs().size() - 1);
+                                }
+                                return null;
+                            }
+                        }
+                        return chain.proceed();
+                    });
+                } catch (Throwable ignored) {}
+            }
+            log(Log.INFO, TAG, "hooked android.os.SystemProperties reflectively");
         } catch (Throwable t) {
-            log(Log.WARN, TAG, "Failed to hook IPackageManager$Stub$Proxy.getSystemAvailableFeatures: " + t);
+            log(Log.WARN, TAG, "Failed to hook android.os.SystemProperties: " + t);
         }
     }
 
-    // ── 3. NfcAdapter ─────────────────────────────────────────────────────────
+    // ── 3. Filesystem (java.io.File) hooks ───────────────────────────────────
+
+    private void hookFilesystem() {
+        try {
+            Class<?> fileClass = java.io.File.class;
+            String[] methodsToBlock = {"exists", "canRead", "canWrite", "isFile", "isDirectory"};
+            for (String methodName : methodsToBlock) {
+                try {
+                    Method m = fileClass.getMethod(methodName);
+                    hook(m).intercept(chain -> {
+                        java.io.File file = (java.io.File) chain.getThisObject();
+                        if (file != null) {
+                            String path = file.getPath();
+                            if (path != null && path.toLowerCase().contains("nfc")) {
+                                log(Log.INFO, TAG, "Blocked File." + methodName + "() for path: " + path);
+                                return false;
+                            }
+                        }
+                        return chain.proceed();
+                    });
+                } catch (Throwable ignored) {}
+            }
+
+            try {
+                Method m = fileClass.getMethod("length");
+                hook(m).intercept(chain -> {
+                    java.io.File file = (java.io.File) chain.getThisObject();
+                    if (file != null) {
+                        String path = file.getPath();
+                        if (path != null && path.toLowerCase().contains("nfc")) {
+                            log(Log.INFO, TAG, "Blocked File.length() for path: " + path);
+                            return 0L;
+                        }
+                    }
+                    return chain.proceed();
+                });
+            } catch (Throwable ignored) {}
+
+            log(Log.INFO, TAG, "hooked java.io.File methods");
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to hook java.io.File: " + t);
+        }
+    }
+
+    // ── 4. NfcAdapter reflective hooks ───────────────────────────────────────
 
     private void hookNfcAdapter() {
         try {
-            Method m = NfcAdapter.class.getMethod("getDefaultAdapter", Context.class);
-            hook(m).intercept(chain -> {
-                log(Log.INFO, TAG, "Blocked NfcAdapter.getDefaultAdapter(Context)");
-                return null;
-            });
+            for (Method method : NfcAdapter.class.getDeclaredMethods()) {
+                if (java.lang.reflect.Modifier.isStatic(method.getModifiers())) {
+                    if (method.getReturnType().equals(NfcAdapter.class)) {
+                        try {
+                            hook(method).intercept(chain -> {
+                                log(Log.INFO, TAG, "Blocked static NfcAdapter method returning adapter: " + chain.getExecutable().getName());
+                                return null;
+                            });
+                        } catch (Throwable ignored) {}
+                    }
+                } else {
+                    try {
+                        hook(method).intercept(chain -> {
+                            String name = chain.getExecutable().getName();
+                            Class<?> returnType = method.getReturnType();
+                            log(Log.INFO, TAG, "Intercepted NfcAdapter method: " + name + ", return type: " + returnType.getName());
+                            if (name.equals("getAdapterState")) {
+                                return 1; // STATE_OFF
+                            }
+                            if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
+                                return false;
+                            }
+                            if (returnType.isPrimitive()) {
+                                if (returnType.equals(void.class)) {
+                                    return null;
+                                }
+                                return 0;
+                            }
+                            return null;
+                        });
+                    } catch (Throwable ignored) {}
+                }
+            }
+            log(Log.INFO, TAG, "hooked NfcAdapter reflectively");
         } catch (Throwable t) {
-            log(Log.WARN, TAG, "Failed to hook NfcAdapter.getDefaultAdapter(Context): " + t);
+            log(Log.WARN, TAG, "Failed to hook NfcAdapter: " + t);
         }
-        try {
-            Method m = NfcAdapter.class.getMethod("getDefaultAdapter");
-            hook(m).intercept(chain -> {
-                log(Log.INFO, TAG, "Blocked NfcAdapter.getDefaultAdapter()");
-                return null;
-            });
-        } catch (Throwable ignored) {}
-
-        // getNfcAdapter(Context)
-        try {
-            Method m = NfcAdapter.class.getMethod("getNfcAdapter", Context.class);
-            hook(m).intercept(chain -> {
-                log(Log.INFO, TAG, "Blocked NfcAdapter.getNfcAdapter(Context)");
-                return null;
-            });
-        } catch (Throwable t) {
-            log(Log.WARN, TAG, "Failed to hook NfcAdapter.getNfcAdapter(Context): " + t);
-        }
-
-        // isEnabled() – return false in case the adapter is obtained via other paths
-        try {
-            Method m = NfcAdapter.class.getMethod("isEnabled");
-            hook(m).intercept(chain -> {
-                log(Log.INFO, TAG, "Blocked NfcAdapter.isEnabled()");
-                return false;
-            });
-        } catch (Throwable ignored) {}
-
-        // getAdapterState()
-        try {
-            Method m = NfcAdapter.class.getMethod("getAdapterState");
-            hook(m).intercept(chain -> {
-                log(Log.INFO, TAG, "Blocked NfcAdapter.getAdapterState()");
-                return 1; // STATE_OFF
-            });
-        } catch (Throwable ignored) {}
-
-        // isNdefPushEnabled()
-        try {
-            Method m = NfcAdapter.class.getMethod("isNdefPushEnabled");
-            hook(m).intercept(chain -> {
-                log(Log.INFO, TAG, "Blocked NfcAdapter.isNdefPushEnabled()");
-                return false;
-            });
-        } catch (Throwable ignored) {}
-
-        // isSecureNfcSupported()
-        try {
-            Method m = NfcAdapter.class.getMethod("isSecureNfcSupported");
-            hook(m).intercept(chain -> {
-                log(Log.INFO, TAG, "Blocked NfcAdapter.isSecureNfcSupported()");
-                return false;
-            });
-        } catch (Throwable ignored) {}
-
-        // isSecureNfcEnabled()
-        try {
-            Method m = NfcAdapter.class.getMethod("isSecureNfcEnabled");
-            hook(m).intercept(chain -> {
-                log(Log.INFO, TAG, "Blocked NfcAdapter.isSecureNfcEnabled()");
-                return false;
-            });
-        } catch (Throwable ignored) {}
-
-        log(Log.INFO, TAG, "hooked NfcAdapter");
     }
 
-    // ── 4. NfcManager ─────────────────────────────────────────────────────────
+    // ── 5. NfcManager reflective hooks ───────────────────────────────────────
 
     private void hookNfcManager() {
         try {
-            Method m = NfcManager.class.getMethod("getDefaultAdapter");
-            hook(m).intercept(chain -> {
-                log(Log.INFO, TAG, "Blocked NfcManager.getDefaultAdapter()");
-                return null;
-            });
-            log(Log.INFO, TAG, "hooked NfcManager.getDefaultAdapter");
+            for (Method method : NfcManager.class.getDeclaredMethods()) {
+                try {
+                    hook(method).intercept(chain -> {
+                        String name = chain.getExecutable().getName();
+                        Class<?> returnType = method.getReturnType();
+                        log(Log.INFO, TAG, "Intercepted NfcManager method: " + name);
+                        if (returnType.equals(NfcAdapter.class)) {
+                            return null;
+                        }
+                        if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
+                            return false;
+                        }
+                        if (returnType.isPrimitive()) {
+                            if (returnType.equals(void.class)) {
+                                return null;
+                            }
+                            return 0;
+                        }
+                        return null;
+                    });
+                } catch (Throwable ignored) {}
+            }
+            log(Log.INFO, TAG, "hooked NfcManager reflectively");
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed to hook NfcManager: " + t);
         }
     }
 
-    // ── 5. Context.getSystemService("nfc") ────────────────────────────────────
+    // ── 6. CardEmulation reflective hooks ────────────────────────────────────
+
+    private void hookCardEmulation(PackageLoadedParam param) {
+        try {
+            Class<?> cardEmuClass = param.getDefaultClassLoader()
+                    .loadClass("android.nfc.cardemulation.CardEmulation");
+            for (Method method : cardEmuClass.getDeclaredMethods()) {
+                try {
+                    hook(method).intercept(chain -> {
+                        String name = chain.getExecutable().getName();
+                        Class<?> returnType = method.getReturnType();
+                        log(Log.INFO, TAG, "Intercepted CardEmulation method: " + name);
+                        if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
+                            return false;
+                        }
+                        if (returnType.isPrimitive()) {
+                            if (returnType.equals(void.class)) {
+                                return null;
+                            }
+                            return 0;
+                        }
+                        return null;
+                    });
+                } catch (Throwable ignored) {}
+            }
+            log(Log.INFO, TAG, "hooked android.nfc.cardemulation.CardEmulation reflectively");
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed to load android.nfc.cardemulation.CardEmulation: " + t);
+        }
+    }
+
+    // ── 7. Context.getSystemService("nfc") ────────────────────────────────────
 
     private void hookGetSystemService(PackageLoadedParam param) {
         try {
@@ -263,7 +490,6 @@ public class NfcHook extends XposedModule {
                 }
                 return chain.proceed();
             });
-            log(Log.INFO, TAG, "hooked ContextImpl.getSystemService");
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed to hook getSystemService: " + t);
         }
@@ -282,13 +508,12 @@ public class NfcHook extends XposedModule {
                 }
                 return chain.proceed();
             });
-            log(Log.INFO, TAG, "hooked ContextImpl.getSystemService(Class)");
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed to hook getSystemService(Class): " + t);
         }
     }
 
-    // ── 6. ServiceManager.getService / checkService ───────────────────────────
+    // ── 8. ServiceManager.getService / checkService / listServices ────────────
 
     private void hookServiceManager(PackageLoadedParam param) {
         try {
@@ -306,7 +531,6 @@ public class NfcHook extends XposedModule {
                         }
                         return chain.proceed();
                     });
-                    log(Log.INFO, TAG, "hooked ServiceManager." + methodName);
                 } catch (Throwable t) {
                     log(Log.WARN, TAG, "Failed to hook ServiceManager." + methodName + ": " + t);
                 }
@@ -327,7 +551,6 @@ public class NfcHook extends XposedModule {
                     }
                     return filtered.toArray(new String[0]);
                 });
-                log(Log.INFO, TAG, "hooked ServiceManager.listServices");
             } catch (Throwable t) {
                 log(Log.WARN, TAG, "Failed to hook ServiceManager.listServices: " + t);
             }
@@ -336,7 +559,7 @@ public class NfcHook extends XposedModule {
         }
     }
 
-    // ── 7. Settings.Global / Settings.Secure (nfc_on, etc.) ──────────────────
+    // ── 9. Settings.Global / Settings.Secure / Settings.System reflective hooks ──
 
     private void hookSettings(PackageLoadedParam param) {
         ClassLoader cl = param.getDefaultClassLoader();
@@ -345,60 +568,41 @@ public class NfcHook extends XposedModule {
                                                   "android.provider.Settings$System"}) {
             try {
                 Class<?> cls = cl.loadClass(settingsClass);
-
-                // getString
-                try {
-                    Method getString = cls.getMethod("getString",
-                            android.content.ContentResolver.class, String.class);
-                    hook(getString).intercept(chain -> {
-                        String key = (String) chain.getArg(1);
-                        if (key != null && key.toLowerCase().contains("nfc")) {
-                            log(Log.INFO, TAG, "Blocked Settings.getString(" + key + ")");
-                            return "0";
-                        }
-                        return chain.proceed();
-                    });
-                } catch (Throwable ignored) {}
-
-                // getInt
-                try {
-                    Method getInt = cls.getMethod("getInt",
-                            android.content.ContentResolver.class, String.class);
-                    hook(getInt).intercept(chain -> {
-                        String key = (String) chain.getArg(1);
-                        if (key != null && key.toLowerCase().contains("nfc")) {
-                            log(Log.INFO, TAG, "Blocked Settings.getInt(" + key + ")");
-                            return 0;
-                        }
-                        return chain.proceed();
-                    });
-                } catch (Throwable ignored) {}
-
-                // getInt with default
-                try {
-                    Method getIntDef = cls.getMethod("getInt",
-                            android.content.ContentResolver.class, String.class, int.class);
-                    hook(getIntDef).intercept(chain -> {
-                        String key = (String) chain.getArg(1);
-                        if (key != null && key.toLowerCase().contains("nfc")) {
-                            log(Log.INFO, TAG, "Blocked Settings.getInt(" + key + ", def)");
-                            return 0;
-                        }
-                        return chain.proceed();
-                    });
-                } catch (Throwable ignored) {}
-
-                log(Log.INFO, TAG, "hooked " + settingsClass);
+                for (Method method : cls.getDeclaredMethods()) {
+                    if (method.getName().startsWith("get") && method.getParameterTypes().length >= 2) {
+                        try {
+                            hook(method).intercept(chain -> {
+                                if (chain.getArgs().size() > 1 && chain.getArg(1) instanceof String) {
+                                    String key = (String) chain.getArg(1);
+                                    if (key != null && key.toLowerCase().contains("nfc")) {
+                                        log(Log.INFO, TAG, "Blocked Settings method " + chain.getExecutable().getName() + "(" + key + ")");
+                                        Class<?> returnType = method.getReturnType();
+                                        if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
+                                            return false;
+                                        }
+                                        if (returnType.equals(int.class) || returnType.equals(Integer.class)) {
+                                            return 0;
+                                        }
+                                        if (returnType.equals(long.class) || returnType.equals(Long.class)) {
+                                            return 0L;
+                                        }
+                                        if (returnType.equals(float.class) || returnType.equals(Float.class)) {
+                                            return 0f;
+                                        }
+                                        if (returnType.equals(String.class)) {
+                                            return "0";
+                                        }
+                                        return null;
+                                    }
+                                }
+                                return chain.proceed();
+                            });
+                        } catch (Throwable ignored) {}
+                    }
+                }
             } catch (Throwable t) {
                 log(Log.WARN, TAG, "Failed to hook " + settingsClass + ": " + t);
             }
         }
-    }
-
-    // ── Helper ────────────────────────────────────────────────────────────────
-
-    private boolean isNfcFeature(String feature) {
-        if (feature == null) return false;
-        return feature.toLowerCase().contains("nfc");
     }
 }
