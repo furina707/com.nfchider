@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:label="NFC Hider"
@@ -16,6 +17,7 @@
             </intent-filter>
         </activity>
 
+        <!-- Expose as Xposed module -->
         <meta-data
             android:name="xposedmodule"
             android:value="true" />
@@ -25,6 +27,14 @@
         <meta-data
             android:name="xposedminversion"
             android:value="101" />
+
+        <!-- Exclude auto-merged AndroidX components not needed for Xposed module -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            tools:node="remove" />
+        <receiver
+            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+            tools:node="remove" />
 
     </application>
 
