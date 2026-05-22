@@ -25,14 +25,11 @@ import io.github.libxposed.api.XposedModuleInterface;
 public class NfcHook extends XposedModule {
 
     private static final String TAG = "NfcHider";
-    private static final String TARGET_PKG = "com.eg.android.AlipayGphone";
 
     @Override
     public void onPackageLoaded(@NonNull PackageLoadedParam param) {
-        if (!TARGET_PKG.equals(param.getPackageName())) {
-            return;
-        }
-        log(Log.INFO, TAG, "Hooking Alipay NFC detection with comprehensive advanced hooks");
+        String pkg = param.getPackageName();
+        log(Log.INFO, TAG, "Hooking NFC detection for: " + pkg);
 
         // 1. Hook PackageManager & IPackageManager reflectively
         hookPackageManager(param);

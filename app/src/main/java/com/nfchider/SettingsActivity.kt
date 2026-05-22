@@ -160,19 +160,19 @@ fun TargetAppCard() {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "Target Application",
+                text = "Target Applications",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "com.eg.android.AlipayGphone",
+                text = "Select apps in LSPosed scope settings",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Hooks are only applied when the target app is loaded.",
+                text = "Hooks are applied to all apps selected in LSPosed scope.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -191,7 +191,7 @@ fun AboutCard() {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Prevents Alipay from detecting the device's NFC hardware by hooking NFC-related Android APIs at the framework level.",
+                text = "Prevents selected apps from detecting the device's NFC hardware by hooking NFC-related Android APIs at the framework level. Select target apps in LSPosed scope settings.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
