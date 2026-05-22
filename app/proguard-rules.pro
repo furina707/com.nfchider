@@ -1,2 +1,1 @@
 -keep class com.nfchider.** { *; }
--keep class io.github.libxposed.api.** { *; }

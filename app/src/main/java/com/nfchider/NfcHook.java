@@ -2,6 +2,7 @@ package com.nfchider;
 
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.nfc.NfcAdapter;
 import android.nfc.NfcManager;
 import android.util.Log;
@@ -10,6 +11,7 @@ import androidx.annotation.NonNull;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -99,7 +101,7 @@ public class NfcHook extends XposedModule {
                             String pkg = (String) chain.getArg(0);
                             if (pkg != null && pkg.toLowerCase().contains("nfc")) {
                                 log(Log.INFO, TAG, "Blocked " + cls.getSimpleName() + "." + name + "(" + pkg + ")");
-                                throw new android.content.pm.PackageManager.NameNotFoundException(pkg);
+                                throw new PackageManager.NameNotFoundException(pkg);
                             }
                         }
                         return chain.proceed();
@@ -110,7 +112,7 @@ public class NfcHook extends XposedModule {
                             String pkg = (String) chain.getArg(0);
                             if (pkg != null && pkg.toLowerCase().contains("nfc")) {
                                 log(Log.INFO, TAG, "Blocked " + cls.getSimpleName() + "." + name + "(" + pkg + ")");
-                                throw new android.content.pm.PackageManager.NameNotFoundException(pkg);
+                                throw new PackageManager.NameNotFoundException(pkg);
                             }
                         }
                         return chain.proceed();
@@ -137,7 +139,7 @@ public class NfcHook extends XposedModule {
                             for (Object fi : features) {
                                 if (fi != null) {
                                     try {
-                                        java.lang.reflect.Field nameField = fi.getClass().getField("name");
+                                        Field nameField = fi.getClass().getField("name");
                                         String fName = (String) nameField.get(fi);
                                         if (fName != null && fName.toLowerCase().contains("nfc")) {
                                             log(Log.INFO, TAG, "Filtered out feature: " + fName);
@@ -151,7 +153,7 @@ public class NfcHook extends XposedModule {
                             }
                             Class<?> componentType = result.getClass().getComponentType();
                             if (componentType.equals(Object.class)) {
-                                Object[] arr = (Object[]) java.lang.reflect.Array.newInstance(componentType, filtered.size());
+                                Object[] arr = (Object[]) Array.newInstance(componentType, filtered.size());
                                 return filtered.toArray(arr);
                             } else {
                                 log(Log.WARN, TAG, "Unexpected component type: " + componentType.getName() + ", returning original result");
@@ -166,7 +168,7 @@ public class NfcHook extends XposedModule {
                                     for (Object fi : list) {
                                         if (fi != null) {
                                             try {
-                                                java.lang.reflect.Field nameField = fi.getClass().getField("name");
+                                                Field nameField = fi.getClass().getField("name");
                                                 String fName = (String) nameField.get(fi);
                                                 if (fName != null && fName.toLowerCase().contains("nfc")) {
                                                     log(Log.INFO, TAG, "Filtered out binder feature: " + fName);
@@ -179,7 +181,7 @@ public class NfcHook extends XposedModule {
                                         filtered.add(fi);
                                     }
                                     try {
-                                        java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
+                                        Constructor<?> constr = result.getClass().getConstructor(List.class);
                                         return constr.newInstance(filtered);
                                     } catch (Throwable t) {
                                         log(Log.WARN, TAG, "Failed to reconstruct ParceledListSlice for binder features: " + t);
@@ -217,7 +219,7 @@ public class NfcHook extends XposedModule {
                             for (Object item : list) {
                                 if (item != null) {
                                     try {
-                                        java.lang.reflect.Field pkgField = item.getClass().getField("packageName");
+                                        Field pkgField = item.getClass().getField("packageName");
                                         String pkgName = (String) pkgField.get(item);
                                         if (pkgName != null && pkgName.toLowerCase().contains("nfc")) {
                                             log(Log.INFO, TAG, "Filtered out package: " + pkgName);
@@ -232,7 +234,7 @@ public class NfcHook extends XposedModule {
 
                             if (isParceledListSlice) {
                                 try {
-                                    java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
+                                    Constructor<?> constr = result.getClass().getConstructor(List.class);
                                     return constr.newInstance(filtered);
                                 } catch (Throwable t) {
                                     log(Log.WARN, TAG, "Failed to reconstruct ParceledListSlice, returning filtered List: " + t);
@@ -277,18 +279,18 @@ public class NfcHook extends XposedModule {
                             for (Object ri : list) {
                                 if (ri != null) {
                                     try {
-                                        java.lang.reflect.Field actField = ri.getClass().getField("activityInfo");
+                                        Field actField = ri.getClass().getField("activityInfo");
                                         Object info = actField.get(ri);
                                         if (info == null) {
-                                            java.lang.reflect.Field srvField = ri.getClass().getField("serviceInfo");
+                                            Field srvField = ri.getClass().getField("serviceInfo");
                                             info = srvField.get(ri);
                                         }
                                         if (info == null) {
-                                            java.lang.reflect.Field provField = ri.getClass().getField("providerInfo");
+                                            Field provField = ri.getClass().getField("providerInfo");
                                             info = provField.get(ri);
                                         }
                                         if (info != null) {
-                                            java.lang.reflect.Field pkgField = info.getClass().getField("packageName");
+                                            Field pkgField = info.getClass().getField("packageName");
                                             String pkgName = (String) pkgField.get(info);
                                             if (pkgName != null && pkgName.toLowerCase().contains("nfc")) {
                                                 log(Log.INFO, TAG, "Filtered out intent resolve: " + pkgName);
@@ -304,7 +306,7 @@ public class NfcHook extends XposedModule {
 
                             if (isParceledListSlice) {
                                 try {
-                                    java.lang.reflect.Constructor<?> constr = result.getClass().getConstructor(List.class);
+                                    Constructor<?> constr = result.getClass().getConstructor(List.class);
                                     return constr.newInstance(filtered);
                                 } catch (Throwable t) {
                                     log(Log.WARN, TAG, "Failed to reconstruct ParceledListSlice for intent resolve, returning filtered List: " + t);
@@ -381,7 +383,7 @@ public class NfcHook extends XposedModule {
                 try {
                     Method m = fileClass.getMethod(methodName);
                     hook(m).intercept(chain -> {
-                        java.io.File file = (java.io.File) chain.getThisObject();
+                        File file = (File) chain.getThisObject();
                         if (file != null) {
                             String path = file.getPath();
                             if (path != null && path.toLowerCase().contains("nfc")) {
@@ -399,7 +401,7 @@ public class NfcHook extends XposedModule {
             try {
                 Method m = fileClass.getMethod("length");
                 hook(m).intercept(chain -> {
-                    java.io.File file = (java.io.File) chain.getThisObject();
+                    File file = (File) chain.getThisObject();
                     if (file != null) {
                         String path = file.getPath();
                         if (path != null && path.toLowerCase().contains("nfc")) {
@@ -413,9 +415,9 @@ public class NfcHook extends XposedModule {
                 log(Log.WARN, TAG, "Failed to hook File.length: " + t);
             }
             // Hook java.io.FileInputStream constructors to block reading NFC config files
-            Class<?> fisClass = java.io.FileInputStream.class;
+            Class<?> fisClass = FileInputStream.class;
             try {
-                java.lang.reflect.Constructor<?> constrString = fisClass.getConstructor(String.class);
+                Constructor<?> constrString = fisClass.getConstructor(String.class);
                 hook(constrString).intercept(chain -> {
                     String path = (String) chain.getArg(0);
                     if (path != null && path.toLowerCase().contains("nfc")) {
@@ -429,9 +431,9 @@ public class NfcHook extends XposedModule {
             }
 
             try {
-                java.lang.reflect.Constructor<?> constrFile = fisClass.getConstructor(java.io.File.class);
+                Constructor<?> constrFile = fisClass.getConstructor(File.class);
                 hook(constrFile).intercept(chain -> {
-                    java.io.File file = (java.io.File) chain.getArg(0);
+                    File file = (File) chain.getArg(0);
                     if (file != null) {
                         String path = file.getPath();
                         if (path != null && path.toLowerCase().contains("nfc")) {
@@ -863,7 +865,7 @@ public class NfcHook extends XposedModule {
             log(Log.WARN, TAG, "Failed to get path from FileInputStream: " + t);
         }
         try {
-            java.lang.reflect.Field fdField = fis.getClass().getDeclaredField("fd");
+            Field fdField = fis.getClass().getDeclaredField("fd");
             fdField.setAccessible(true);
             Object fdObj = fdField.get(fis);
             if (fdObj != null) {
