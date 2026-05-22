@@ -16,14 +16,11 @@ android {
     }
 
     signingConfigs {
-        val keystorePath = System.getenv("KEYSTORE_PATH")
-        if (!keystorePath.isNullOrBlank()) {
-            create("release") {
-                storeFile = file(keystorePath)
-                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
-                keyAlias = System.getenv("KEY_ALIAS") ?: ""
-                keyPassword = System.getenv("KEY_PASSWORD") ?: ""
-            }
+        create("release") {
+            storeFile = file(System.getenv("KEYSTORE_PATH") ?: rootProject.projectDir.resolve("release.keystore").toString())
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "nfchider123"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "nfchider"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "nfchider123"
         }
 
         create("ciDebug") {
