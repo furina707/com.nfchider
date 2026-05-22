@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -48,6 +49,16 @@ jobs:
           name: NfcHider-release-${{ github.run_number }}
           path: artifacts/
 
+      # 删除旧的 Actions 运行历史（保留最近 1 次）
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 1
+
+      # 删除旧的 Release
       - name: Delete old Release
         uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
@@ -56,6 +67,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # 创建新的 Release
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
