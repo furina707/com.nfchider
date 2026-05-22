@@ -340,7 +340,7 @@ public class NfcHook extends XposedModule {
                             String key = (String) chain.getArg(0);
                             if (key != null && key.toLowerCase().contains("nfc")) {
                                 log(Log.INFO, TAG, "Blocked SystemProperties." + chain.getExecutable().getName() + "(" + key + ")");
-                                Class<?> returnType = chain.getExecutable().getReturnType();
+                                Class<?> returnType = method.getReturnType();
                                 if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
                                     return false;
                                 }
@@ -474,7 +474,7 @@ public class NfcHook extends XposedModule {
                     try {
                         hook(method).intercept(chain -> {
                             String name = chain.getExecutable().getName();
-                            Class<?> returnType = chain.getExecutable().getReturnType();
+                            Class<?> returnType = method.getReturnType();
                             log(Log.INFO, TAG, "Intercepted NfcAdapter method: " + name + ", return type: " + returnType.getName());
                             if (name.equals("getAdapterState")) {
                                 return 1;
@@ -509,7 +509,7 @@ public class NfcHook extends XposedModule {
                 try {
                     hook(method).intercept(chain -> {
                         String name = chain.getExecutable().getName();
-                        Class<?> returnType = chain.getExecutable().getReturnType();
+                        Class<?> returnType = method.getReturnType();
                         log(Log.INFO, TAG, "Intercepted NfcManager method: " + name);
                         if (returnType.equals(NfcAdapter.class)) {
                             return null;
@@ -545,7 +545,7 @@ public class NfcHook extends XposedModule {
                 try {
                     hook(method).intercept(chain -> {
                         String name = chain.getExecutable().getName();
-                        Class<?> returnType = chain.getExecutable().getReturnType();
+                        Class<?> returnType = method.getReturnType();
                         log(Log.INFO, TAG, "Intercepted CardEmulation method: " + name);
                         if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
                             return false;
@@ -937,7 +937,7 @@ public class NfcHook extends XposedModule {
                                     String key = (String) chain.getArg(1);
                                     if (key != null && key.toLowerCase().contains("nfc")) {
                                         log(Log.INFO, TAG, "Blocked Settings method " + chain.getExecutable().getName() + "(" + key + ")");
-                                        Class<?> returnType = chain.getExecutable().getReturnType();
+                                        Class<?> returnType = method.getReturnType();
                                         if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
                                             return false;
                                         }
