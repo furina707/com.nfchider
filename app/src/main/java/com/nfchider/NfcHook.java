@@ -8,15 +8,12 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.InputStreamReader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import io.github.libxposed.api.XposedModule;
@@ -850,17 +847,6 @@ public class NfcHook extends XposedModule {
             });
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed to hook FileInputStream.read(byte[]): " + t);
-        }
-
-        // Hook BufferedReader.readLine() for filtering NFC lines from config files
-        try {
-            Method readLine = BufferedReader.class.getMethod("readLine");
-            hook(readLine).intercept(chain -> {
-                BufferedReader br = (BufferedReader) chain.getThisObject();
-                return chain.proceed();
-            });
-        } catch (Throwable t) {
-            log(Log.WARN, TAG, "Failed to hook BufferedReader.readLine: " + t);
         }
 
         log(Log.INFO, TAG, "hooked system config file reads");
