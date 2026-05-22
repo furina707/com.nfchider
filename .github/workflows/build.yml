@@ -61,7 +61,7 @@ jobs:
       # 删除所有旧的 Release
       - name: Delete all old Releases
         run: |
-          gh release list --limit 100 --json tagName,isDraft -q '.[] | select(.isDraft==false) | .tagName' |
+          gh release list --limit 100 --json tagName -q '.[].tagName' |
           while read tag; do
             echo "Deleting release: $tag"
             gh release delete "$tag" --yes || true
