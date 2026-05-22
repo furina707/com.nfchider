@@ -15,6 +15,7 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -833,10 +834,10 @@ public class NfcHook extends XposedModule {
                     int ret = (int) chain.proceed();
                     if (ret > 0) {
                         byte[] buf = (byte[]) chain.getArg(0);
-                        String content = new String(buf, 0, ret, java.nio.charset.StandardCharsets.UTF_8);
+                        String content = new String(buf, 0, ret, StandardCharsets.UTF_8);
                         String filtered = filterNfcLines(content);
                         if (!filtered.equals(content)) {
-                            byte[] filteredBytes = filtered.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                            byte[] filteredBytes = filtered.getBytes(StandardCharsets.UTF_8);
                             int copyLen = Math.min(filteredBytes.length, buf.length);
                             System.arraycopy(filteredBytes, 0, buf, 0, copyLen);
                             log(Log.INFO, TAG, "Filtered NFC content from: " + fdPath);
