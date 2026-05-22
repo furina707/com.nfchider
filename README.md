@@ -1,6 +1,6 @@
 # NFC Hider
 
-[![Build](https://github.com/furina707/com.nfchider/actions/workflows/build.yml/badge.svg)](https://github.com/furina707/com.nfchider/actions/workflows/build.yml)
+[![Build](https://github.com/Xposed-Modules-Repo/com.nfchider/actions/workflows/build.yml/badge.svg)](https://github.com/Xposed-Modules-Repo/com.nfchider/actions/workflows/build.yml)
 
 An Xposed module that hides NFC (Near Field Communication) from selected apps on Android.
 
@@ -21,7 +21,7 @@ An Xposed module that hides NFC (Near Field Communication) from selected apps on
 ## Build
 
 ```bash
-git clone https://github.com/furina707/com.nfchider.git
+git clone https://github.com/Xposed-Modules-Repo/com.nfchider.git
 cd com.nfchider
 ./gradlew assembleDebug
 ```
@@ -34,7 +34,7 @@ The debug APK will be at `app/build/outputs/apk/debug/NfcHider-debug.apk`.
 
 ## Download
 
-Pre-built APKs are available from [GitHub Actions](https://github.com/furina707/com.nfchider/actions) — click the latest build, then download the `NfcHider` artifact.
+Pre-built APKs are available from the [Releases](https://github.com/Xposed-Modules-Repo/com.nfchider/releases) page.
 
 ## License
 
