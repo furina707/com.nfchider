@@ -58,12 +58,15 @@ jobs:
           retain_days: 0
           keep_minimum_runs: 1
 
-      # 删除旧的 Release
-      - name: Delete old Release
-        uses: dev-drprasad/delete-tag-and-release@v1.1
-        with:
-          tag_name: latest
-          delete_release: true
+      # 删除所有旧的 Release
+      - name: Delete all old Releases
+        run: |
+          gh release list --limit 100 --json tagName,isDraft -q '.[] | select(.isDraft==false) | .tagName' |
+          while read tag; do
+            echo "Deleting release: $tag"
+            gh release delete "$tag" --yes || true
+            git push --delete origin "$tag" 2>/dev/null || true
+          done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
