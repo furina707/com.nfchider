@@ -1,7 +1,7 @@
 package com.nfchider;
 
-import android.content.ContentResolver;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.nfc.NfcAdapter;
 import android.nfc.NfcManager;
@@ -9,18 +9,22 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 import io.github.libxposed.api.XposedModule;
-import io.github.libxposed.api.XposedModuleInterface;
 
 public class NfcHook extends XposedModule {
 
@@ -68,7 +72,7 @@ public class NfcHook extends XposedModule {
         hookContentResolver(param);
 
         // 13. Hook file reads on system config files that reveal NFC
-        hookSystemConfigReads(param);
+        hookSystemConfigReads();
     }
 
     // ── 1. PackageManager & IPackageManager reflective hooks ──────────────────
@@ -251,8 +255,8 @@ public class NfcHook extends XposedModule {
                         || name.equals("queryIntentServices") || name.equals("queryIntentServicesAsUser")
                         || name.equals("queryIntentReceivers") || name.equals("queryIntentReceiversAsUser")) {
                     hook(method).intercept(chain -> {
-                        if (chain.getArgs().size() > 0 && chain.getArg(0) instanceof android.content.Intent) {
-                            android.content.Intent intent = (android.content.Intent) chain.getArg(0);
+                        if (chain.getArgs().size() > 0 && chain.getArg(0) instanceof Intent) {
+                            Intent intent = (Intent) chain.getArg(0);
                             if (intent.getAction() != null && intent.getAction().toLowerCase().contains("nfc")) {
                                 log(Log.INFO, TAG, "Blocked " + cls.getSimpleName() + "." + name + " for action: " + intent.getAction());
                                 return new ArrayList<>();
@@ -341,21 +345,14 @@ public class NfcHook extends XposedModule {
                             if (key != null && key.toLowerCase().contains("nfc")) {
                                 log(Log.INFO, TAG, "Blocked SystemProperties." + chain.getExecutable().getName() + "(" + key + ")");
                                 Class<?> returnType = method.getReturnType();
-                                if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
-                                    return false;
-                                }
-                                if (returnType.equals(int.class) || returnType.equals(Integer.class)) {
-                                    return 0;
-                                }
-                                if (returnType.equals(long.class) || returnType.equals(Long.class)) {
-                                    return 0L;
-                                }
                                 if (returnType.equals(String.class)) {
                                     if (chain.getArgs().size() > 1 && chain.getArg(1) instanceof String) {
                                         return chain.getArg(1);
                                     }
                                     return "";
                                 }
+                                Object def = defaultForType(returnType);
+                                if (def != null) return def;
                                 if (chain.getArgs().size() > 1) {
                                     return chain.getArg(chain.getArgs().size() - 1);
                                 }
@@ -378,7 +375,7 @@ public class NfcHook extends XposedModule {
 
     private void hookFilesystem() {
         try {
-            Class<?> fileClass = java.io.File.class;
+            Class<?> fileClass = File.class;
             String[] methodsToBlock = {"exists", "canRead", "canWrite", "isFile", "isDirectory"};
             for (String methodName : methodsToBlock) {
                 try {
@@ -423,7 +420,7 @@ public class NfcHook extends XposedModule {
                     String path = (String) chain.getArg(0);
                     if (path != null && path.toLowerCase().contains("nfc")) {
                         log(Log.INFO, TAG, "Blocked FileInputStream(String) for path: " + path);
-                        throw new java.io.FileNotFoundException("NFC file blocked by Hider");
+                        throw new FileNotFoundException("NFC file blocked by Hider");
                     }
                     return chain.proceed();
                 });
@@ -439,7 +436,7 @@ public class NfcHook extends XposedModule {
                         String path = file.getPath();
                         if (path != null && path.toLowerCase().contains("nfc")) {
                             log(Log.INFO, TAG, "Blocked FileInputStream(File) for path: " + path);
-                            throw new java.io.FileNotFoundException("NFC file blocked by Hider");
+                            throw new FileNotFoundException("NFC file blocked by Hider");
                         }
                     }
                     return chain.proceed();
@@ -459,7 +456,7 @@ public class NfcHook extends XposedModule {
     private void hookNfcAdapter() {
         try {
             for (Method method : NfcAdapter.class.getDeclaredMethods()) {
-                if (java.lang.reflect.Modifier.isStatic(method.getModifiers())) {
+                if (Modifier.isStatic(method.getModifiers())) {
                     if (method.getReturnType().equals(NfcAdapter.class)) {
                         try {
                             hook(method).intercept(chain -> {
@@ -479,16 +476,7 @@ public class NfcHook extends XposedModule {
                             if (name.equals("getAdapterState")) {
                                 return 1;
                             }
-                            if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
-                                return false;
-                            }
-                            if (returnType.isPrimitive()) {
-                                if (returnType.equals(void.class)) {
-                                    return null;
-                                }
-                                return 0;
-                            }
-                            return null;
+                            return defaultForType(returnType);
                         });
                     } catch (Throwable t) {
                         log(Log.WARN, TAG, "Failed to hook NfcAdapter method: " + t);
@@ -514,16 +502,7 @@ public class NfcHook extends XposedModule {
                         if (returnType.equals(NfcAdapter.class)) {
                             return null;
                         }
-                        if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
-                            return false;
-                        }
-                        if (returnType.isPrimitive()) {
-                            if (returnType.equals(void.class)) {
-                                return null;
-                            }
-                            return 0;
-                        }
-                        return null;
+                        return defaultForType(returnType);
                     });
                 } catch (Throwable t) {
                     log(Log.WARN, TAG, "Failed to hook NfcManager method: " + t);
@@ -547,16 +526,7 @@ public class NfcHook extends XposedModule {
                         String name = chain.getExecutable().getName();
                         Class<?> returnType = method.getReturnType();
                         log(Log.INFO, TAG, "Intercepted CardEmulation method: " + name);
-                        if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
-                            return false;
-                        }
-                        if (returnType.isPrimitive()) {
-                            if (returnType.equals(void.class)) {
-                                return null;
-                            }
-                            return 0;
-                        }
-                        return null;
+                        return defaultForType(returnType);
                     });
                 } catch (Throwable t) {
                     log(Log.WARN, TAG, "Failed to hook CardEmulation method: " + t);
@@ -652,6 +622,40 @@ public class NfcHook extends XposedModule {
         }
     }
 
+    // ── 9. Settings.Global / Settings.Secure / Settings.System reflective hooks ──
+
+    private void hookSettings(PackageLoadedParam param) {
+        ClassLoader cl = param.getDefaultClassLoader();
+        for (String settingsClass : new String[]{"android.provider.Settings$Global",
+                                                  "android.provider.Settings$Secure",
+                                                  "android.provider.Settings$System"}) {
+            try {
+                Class<?> cls = cl.loadClass(settingsClass);
+                for (Method method : cls.getDeclaredMethods()) {
+                    if (method.getName().startsWith("get") && method.getParameterTypes().length >= 2) {
+                        try {
+                            hook(method).intercept(chain -> {
+                                if (chain.getArgs().size() > 1 && chain.getArg(1) instanceof String) {
+                                    String key = (String) chain.getArg(1);
+                                    if (key != null && key.toLowerCase().contains("nfc")) {
+                                        log(Log.INFO, TAG, "Blocked Settings method " + chain.getExecutable().getName() + "(" + key + ")");
+                                        Class<?> returnType = method.getReturnType();
+                                        return defaultForType(returnType);
+                                    }
+                                }
+                                return chain.proceed();
+                            });
+                        } catch (Throwable t) {
+                            log(Log.WARN, TAG, "Failed to hook Settings method: " + t);
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "Failed to hook " + settingsClass + ": " + t);
+            }
+        }
+    }
+
     // ── 10. Runtime.exec() / ProcessBuilder shell command hooks ─────────────────
 
     private void hookProcessAndShell(PackageLoadedParam param) {
@@ -729,12 +733,24 @@ public class NfcHook extends XposedModule {
 
     // Dummy process returned when blocking shell commands
     private static class DummyProcess extends Process {
-        @Override public java.io.OutputStream getOutputStream() { return null; }
-        @Override public java.io.InputStream getInputStream() { return new java.io.ByteArrayInputStream(new byte[0]); }
-        @Override public java.io.InputStream getErrorStream() { return new java.io.ByteArrayInputStream(new byte[0]); }
+        @Override public OutputStream getOutputStream() { return null; }
+        @Override public InputStream getInputStream() { return new ByteArrayInputStream(new byte[0]); }
+        @Override public InputStream getErrorStream() { return new ByteArrayInputStream(new byte[0]); }
         @Override public int waitFor() { return 0; }
         @Override public int exitValue() { return 0; }
         @Override public void destroy() {}
+    }
+
+    private static Object defaultForType(Class<?> type) {
+        if (type.equals(boolean.class) || type.equals(Boolean.class)) return false;
+        if (type.equals(int.class) || type.equals(Integer.class)) return 0;
+        if (type.equals(long.class) || type.equals(Long.class)) return 0L;
+        if (type.equals(float.class) || type.equals(Float.class)) return 0f;
+        if (type.equals(double.class) || type.equals(Double.class)) return 0.0;
+        if (type.equals(String.class)) return "0";
+        if (type.equals(void.class)) return null;
+        if (type.isPrimitive()) return 0;
+        return null;
     }
 
     // ── 11. Class.forName() blocking hook ─────────────────────────────────────
@@ -822,7 +838,7 @@ public class NfcHook extends XposedModule {
 
     // ── 13. System config file read hook (block NFC content from build.prop etc) ──
 
-    private void hookSystemConfigReads(PackageLoadedParam param) {
+    private void hookSystemConfigReads() {
         // Hook FileInputStream.read(byte[]) to filter NFC content from system config files
         try {
             Method readBytes = FileInputStream.class.getMethod("read", byte[].class);
@@ -909,52 +925,4 @@ public class NfcHook extends XposedModule {
         return sb.toString();
     }
 
-    // ── 9. Settings.Global / Settings.Secure / Settings.System reflective hooks ──
-
-    private void hookSettings(PackageLoadedParam param) {
-        ClassLoader cl = param.getDefaultClassLoader();
-        for (String settingsClass : new String[]{"android.provider.Settings$Global",
-                                                  "android.provider.Settings$Secure",
-                                                  "android.provider.Settings$System"}) {
-            try {
-                Class<?> cls = cl.loadClass(settingsClass);
-                for (Method method : cls.getDeclaredMethods()) {
-                    if (method.getName().startsWith("get") && method.getParameterTypes().length >= 2) {
-                        try {
-                            hook(method).intercept(chain -> {
-                                if (chain.getArgs().size() > 1 && chain.getArg(1) instanceof String) {
-                                    String key = (String) chain.getArg(1);
-                                    if (key != null && key.toLowerCase().contains("nfc")) {
-                                        log(Log.INFO, TAG, "Blocked Settings method " + chain.getExecutable().getName() + "(" + key + ")");
-                                        Class<?> returnType = method.getReturnType();
-                                        if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
-                                            return false;
-                                        }
-                                        if (returnType.equals(int.class) || returnType.equals(Integer.class)) {
-                                            return 0;
-                                        }
-                                        if (returnType.equals(long.class) || returnType.equals(Long.class)) {
-                                            return 0L;
-                                        }
-                                        if (returnType.equals(float.class) || returnType.equals(Float.class)) {
-                                            return 0f;
-                                        }
-                                        if (returnType.equals(String.class)) {
-                                            return "0";
-                                        }
-                                        return null;
-                                    }
-                                }
-                                return chain.proceed();
-                            });
-                        } catch (Throwable t) {
-                            log(Log.WARN, TAG, "Failed to hook Settings method: " + t);
-                        }
-                    }
-                }
-            } catch (Throwable t) {
-                log(Log.WARN, TAG, "Failed to hook " + settingsClass + ": " + t);
-            }
-        }
-    }
 }

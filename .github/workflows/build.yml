@@ -1,12 +1,13 @@
-name: Build Xposed Module
+name: Build
 
 on:
-  push:
-    branches: [ main ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      createRelease:
+        description: '是否创建 Release'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -17,37 +18,65 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      # 使用最新版 OpenJDK 21
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      # 添加 Gradle 缓存加速构建
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build Debug APK
+      # 构建 Release APK（使用仓库中的固定签名）
+      - name: Build Release APK
         run: |
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp app/build/outputs/apk/debug/*.apk artifacts/NfcHider-debug.apk
+          cp app/build/outputs/apk/release/*.apk artifacts/NfcHider-release.apk
 
-      - name: Upload APKs
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: NfcHider
+          name: NfcHider-release-${{ github.run_number }}
           path: artifacts/
 
+      # 删除旧的 Release
+      - name: Delete old Release
+        if: ${{ github.event.inputs.createRelease == 'true' }}
+        uses: dev-drprasad/delete-tag-and-release@v1.1
+        with:
+          tag_name: latest
+          delete_release: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 创建新的 Release（使用 latest 作为固定标签）
       - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: ${{ github.event.inputs.createRelease == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/NfcHider-debug.apk
+          tag_name: latest
+          name: Latest Release
+          files: artifacts/NfcHider-release.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

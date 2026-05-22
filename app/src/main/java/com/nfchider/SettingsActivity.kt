@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -93,39 +92,6 @@ fun ModuleStatusCard() {
 }
 
 @Composable
-fun HookCard(
-    title: String,
-    description: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange
-        )
-    }
-}
-
-@Composable
 fun HookCategoriesCard() {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -136,22 +102,32 @@ fun HookCategoriesCard() {
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            var pkgHooks by remember { mutableStateOf(true) }
-            var nfcHooks by remember { mutableStateOf(true) }
-            var fsHooks by remember { mutableStateOf(true) }
-            var shellHooks by remember { mutableStateOf(true) }
-            var settingsHooks by remember { mutableStateOf(true) }
-
-            HookCard("PackageManager", "Block NFC package/feature queries", pkgHooks, { pkgHooks = it })
+            CategoryItem("PackageManager", "Block NFC package/feature queries")
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            HookCard("NfcAdapter / NfcManager", "Block NFC hardware API access", nfcHooks, { nfcHooks = it })
+            CategoryItem("NfcAdapter / NfcManager", "Block NFC hardware API access")
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            HookCard("Filesystem", "Block NFC file/directory access", fsHooks, { fsHooks = it })
+            CategoryItem("Filesystem", "Block NFC file/directory access")
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            HookCard("Shell / Process", "Block NFC shell commands", shellHooks, { shellHooks = it })
+            CategoryItem("Shell / Process", "Block NFC shell commands")
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            HookCard("Settings", "Block NFC system settings queries", settingsHooks, { settingsHooks = it })
+            CategoryItem("Settings", "Block NFC system settings queries")
         }
+    }
+}
+
+@Composable
+private fun CategoryItem(title: String, description: String) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
