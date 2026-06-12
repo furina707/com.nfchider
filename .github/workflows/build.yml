@@ -50,14 +50,14 @@ jobs:
           path: artifacts/
 
 
-- name: Package source code (all files)
-  run: |
-    # 打包当前目录所有文件（不包括输出文件自身）
-    mkdir -p artifacts
-    zip -r artifacts/NfcHider-source.zip . -x 'artifacts/NfcHider-source.zip'
-    echo "All files packaged (including hidden files)"
-
-
+      - name: Package source code (all files)
+        run: |
+          # 打包当前目录所有文件（不包括输出文件自身）
+          mkdir -p artifacts
+          zip -r artifacts/NfcHider-source.zip . -x 'artifacts/NfcHider-source.zip'
+          echo "All files packaged (including hidden files)"
+      
+      
       # 删除旧的 Actions 运行历史（保留最近 1 次）
       - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
@@ -66,7 +66,7 @@ jobs:
           repository: ${{ github.repository }}
           retain_days: 0
           keep_minimum_runs: 1
-
+      
       # 删除所有旧的 Release
       - name: Delete all old Releases
         run: |
