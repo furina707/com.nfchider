@@ -1,10 +1,7 @@
 name: Build
 
 on:
-  push:
-    branches:
-      - main
-      - master
+  # 仅手动触发构建，避免每次推送代码都创建新版本
   workflow_dispatch:
 
 permissions:
