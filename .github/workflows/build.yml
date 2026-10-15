@@ -38,17 +38,44 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # 自动递增 versionCode：查询最新 Release 标签，取 max(最新release+1, 当前+1)，
+      # 避免手动忘记改版本号导致 Release 标签冲突/覆盖。
+      - name: Auto-bump versionCode
+        id: get_version
+        run: |
+          set -e
+          VERSION=$(grep '^version=' module.prop | cut -d'=' -f2 | tr -d '\r')
+          CURRENT_CODE=$(grep '^versionCode=' module.prop | cut -d'=' -f2 | tr -d '\r')
+
+          # 查询最新 Release 的 versionCode（标签格式为 code-version）
+          LATEST_CODE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
+            | grep -oP '"tag_name":\s*"\K[0-9]+' | head -1)
+
+          if [ -z "$LATEST_CODE" ]; then
+            LATEST_CODE=0
+          fi
+
+          # 新版本号 = max(最新release + 1, 当前module.prop + 1)
+          NEW_CODE=$((LATEST_CODE + 1))
+          if [ "$NEW_CODE" -le "$CURRENT_CODE" ]; then
+            NEW_CODE=$((CURRENT_CODE + 1))
+          fi
+
+          TAG="${NEW_CODE}-${VERSION}"
+          echo "versionCode=${NEW_CODE}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Bumping versionCode: ${CURRENT_CODE} -> ${NEW_CODE} (tag: ${TAG})"
+
+          # 更新所有版本文件
+          sed -i "s/^versionCode=.*/versionCode=${NEW_CODE}/" module.prop
+          sed -i "s/^versionCode=.*/versionCode=${NEW_CODE}/" app/src/main/resources/META-INF/xposed/module.prop
+          sed -i "s/versionCode = ${CURRENT_CODE}/versionCode = ${NEW_CODE}/" app/build.gradle.kts
+
       - name: Build Release APK
         run: |
           ./gradlew assembleRelease --no-daemon
-
-      - name: Extract module version
-        id: get_version
-        run: |
-          VERSION=$(grep '^version=' module.prop | cut -d'=' -f2 | tr -d '\r')
-          VERSION_CODE=$(grep '^versionCode=' module.prop | cut -d'=' -f2 | tr -d '\r')
-          echo "tag=${VERSION_CODE}-${VERSION}" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Collect APK
         run: |
@@ -88,5 +115,16 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 将自动递增的版本号回写到仓库，避免下次构建覆盖。
+      # [skip ci] 防止提交本身再次触发工作流造成无限循环。
+      - name: Commit version bump
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add module.prop app/src/main/resources/META-INF/xposed/module.prop app/build.gradle.kts
+          git commit -m "ci: bump version to ${{ steps.get_version.outputs.tag }} [skip ci]"
+          git push
 
 
