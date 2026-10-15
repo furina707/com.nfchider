@@ -124,4 +124,44 @@ jobs:
           git commit -m "ci: bump version to ${{ steps.get_version.outputs.tag }} [skip ci]"
           git push
 
+      # Xposed-Modules-Repo 组织无法运行 Actions，因此由本仓库 CI 代为同步：
+      # 1. 将更新后的 module.prop 推送到 Xposed-Modules-Repo/com.nfchider
+      # 2. 在该仓库创建同名 Release 并附上 APK
+      # 需要在本仓库 Settings > Secrets 中配置 XPOSED_REPO_TOKEN（有该仓库写权限的 PAT）
+      - name: Sync to Xposed-Modules-Repo
+        if: success()
+        run: |
+          set -e
+          REPO="Xposed-Modules-Repo/com.nfchider"
+          TAG="${{ steps.get_version.outputs.tag }}"
+          APK="artifacts/NfcHider-${TAG}.apk"
+
+          # 1. 克隆 Xposed-Modules-Repo 并更新 module.prop
+          git clone --depth 1 "https://x-access-token:${{ secrets.XPOSED_REPO_TOKEN }}@github.com/${REPO}.git" /tmp/xposed-repo
+          cp module.prop /tmp/xposed-repo/module.prop
+          cd /tmp/xposed-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add module.prop
+          git commit -m "update: ${TAG}" || echo "module.prop 无变化，跳过提交"
+          git push
+
+          # 2. 在 Xposed-Modules-Repo 创建 Release 并上传 APK
+          cd "${GITHUB_WORKSPACE}"
+          curl -s -X POST \
+            -H "Authorization: token ${{ secrets.XPOSED_REPO_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/releases" \
+            -d "{\"tag_name\":\"${TAG}\",\"name\":\"${TAG}\",\"draft\":false,\"prerelease\":false}" \
+            -o /tmp/release.json
+
+          UPLOAD_URL=$(grep -oP '"upload_url":\s*"\K[^"]+' /tmp/release.json | sed 's/{?name,label}//')
+          curl -s -X POST \
+            -H "Authorization: token ${{ secrets.XPOSED_REPO_TOKEN }}" \
+            -H "Content-Type: application/vnd.android.package-archive" \
+            "${UPLOAD_URL}?name=NfcHider-${TAG}.apk" \
+            --data-binary @"${APK}" \
+            -o /dev/null
+          echo "已同步到 Xposed-Modules-Repo: ${TAG}"
+
 
