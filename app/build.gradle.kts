@@ -107,6 +107,9 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
+    // 语义化图标（缩放、图层、定位、录制等）；release 构建有资源混淆，
+    // 未引用的图标会被剥离，不会显著增大包体。
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.activity:activity-compose:1.13.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
