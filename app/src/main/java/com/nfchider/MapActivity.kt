@@ -357,6 +357,86 @@ fun LocationSimScreen() {
         }.also { mapView.overlays.add(it) }
     }
 
+    // 面板与定位二级菜单共用的动作（同一行为两个入口，逻辑只此一份）
+    val locateRealAction: () -> Unit = {
+        if (!tracker.hasLocationPermission()) {
+            permissionLauncher.launch(locationPermissions)
+        } else if (!tracker.isLocationProviderEnabled()) {
+            Toast.makeText(context, "请在手机系统设置中开启定位服务 (GPS)", Toast.LENGTH_LONG).show()
+        } else {
+            val loc = realLocation
+            if (loc != null) {
+                mapView.controller.animateTo(GeoPoint(loc.latitude, loc.longitude))
+                if (mapView.zoomLevelDouble < 15.0) {
+                    mapView.controller.setZoom(16.0)
+                }
+                // BUG-15 fix: 提示当前精度，让用户知道定位质量而非只给结论
+                val accText = if (loc.hasAccuracy()) "（当前精度 ±${loc.accuracy.toInt()}m）" else ""
+                Toast.makeText(context, "已定位到真实位置$accText", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "正在获取真实定位，请稍候...", Toast.LENGTH_SHORT).show()
+                tracker.startLocationUpdates()
+            }
+        }
+    }
+    val useRealAsSimAction: () -> Unit = {
+        val loc = realLocation
+        if (loc != null) {
+            update { b ->
+                b.points().clear()
+                b.points().add(TrajectoryConfig.Point(loc.latitude, loc.longitude, Double.NaN))
+                b.enabled(true)
+                b.startAt(System.currentTimeMillis())
+            }
+            mapView.controller.animateTo(GeoPoint(loc.latitude, loc.longitude))
+            Toast.makeText(context, "已将真实物理位置设为模拟位置", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "尚未获取到真实定位，无法设为模拟点", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val moveToSimAction: () -> Unit = {
+        val p = simPos
+        val first = config.points.firstOrNull()
+        val targetLat = p?.lat ?: first?.lat
+        val targetLng = p?.lng ?: first?.lng
+        if (targetLat != null && targetLng != null) {
+            mapView.controller.animateTo(GeoPoint(targetLat, targetLng))
+            if (mapView.zoomLevelDouble < 15.0) {
+                mapView.controller.setZoom(16.0)
+            }
+            Toast.makeText(context, "已移动到模拟位置", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "尚未设置模拟位置，请搜索地点或在地图上标记", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val toggleFollowAction: () -> Unit = {
+        follow = !follow
+        if (follow) {
+            val p = simPos
+            val first = config.points.firstOrNull()
+            val targetLat = p?.lat ?: first?.lat
+            val targetLng = p?.lng ?: first?.lng
+            if (targetLat != null && targetLng != null) {
+                mapView.controller.animateTo(GeoPoint(targetLat, targetLng))
+            }
+            Toast.makeText(context, "已开启模拟移动跟随", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "已关闭模拟移动跟随", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val startRecordingAction: () -> Unit = {
+        if (config.enabled) {
+            Toast.makeText(context, "请先停止模拟定位后再录制真实轨迹", Toast.LENGTH_SHORT).show()
+        } else if (!tracker.hasLocationPermission()) {
+            permissionLauncher.launch(locationPermissions)
+        } else if (!tracker.isLocationProviderEnabled()) {
+            Toast.makeText(context, "请在手机系统设置中开启定位服务 (GPS)", Toast.LENGTH_LONG).show()
+        } else {
+            tracker.startRecording()
+            Toast.makeText(context, "开始录制路线，带着手机移动即可", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     LaunchedEffect(mapPalette) {
         routeLine.outlinePaint.color = mapPalette.routeLine.toArgb()
         recordRouteLine.outlinePaint.color = mapPalette.recordLine.toArgb()
@@ -749,85 +829,6 @@ fun LocationSimScreen() {
             // 竖向空间；「显示全部」收纳诊断/标记等次要功能。
             // --------------------------------------------------------------
 
-            // 面板与定位二级菜单共用的动作（同一行为两个入口，逻辑只此一份）
-            val locateRealAction: () -> Unit = {
-                if (!tracker.hasLocationPermission()) {
-                    permissionLauncher.launch(locationPermissions)
-                } else if (!tracker.isLocationProviderEnabled()) {
-                    Toast.makeText(context, "请在手机系统设置中开启定位服务 (GPS)", Toast.LENGTH_LONG).show()
-                } else {
-                    val loc = realLocation
-                    if (loc != null) {
-                        mapView.controller.animateTo(GeoPoint(loc.latitude, loc.longitude))
-                        if (mapView.zoomLevelDouble < 15.0) {
-                            mapView.controller.setZoom(16.0)
-                        }
-                        // BUG-15 fix: 提示当前精度，让用户知道定位质量而非只给结论
-                        val accText = if (loc.hasAccuracy()) "（当前精度 ±${loc.accuracy.toInt()}m）" else ""
-                        Toast.makeText(context, "已定位到真实位置$accText", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "正在获取真实定位，请稍候...", Toast.LENGTH_SHORT).show()
-                        tracker.startLocationUpdates()
-                    }
-                }
-            }
-            val useRealAsSimAction: () -> Unit = {
-                val loc = realLocation
-                if (loc != null) {
-                    update { b ->
-                        b.points().clear()
-                        b.points().add(TrajectoryConfig.Point(loc.latitude, loc.longitude, Double.NaN))
-                        b.enabled(true)
-                        b.startAt(System.currentTimeMillis())
-                    }
-                    mapView.controller.animateTo(GeoPoint(loc.latitude, loc.longitude))
-                    Toast.makeText(context, "已将真实物理位置设为模拟位置", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "尚未获取到真实定位，无法设为模拟点", Toast.LENGTH_SHORT).show()
-                }
-            }
-            val moveToSimAction: () -> Unit = {
-                val p = simPos
-                val first = config.points.firstOrNull()
-                val targetLat = p?.lat ?: first?.lat
-                val targetLng = p?.lng ?: first?.lng
-                if (targetLat != null && targetLng != null) {
-                    mapView.controller.animateTo(GeoPoint(targetLat, targetLng))
-                    if (mapView.zoomLevelDouble < 15.0) {
-                        mapView.controller.setZoom(16.0)
-                    }
-                    Toast.makeText(context, "已移动到模拟位置", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "尚未设置模拟位置，请搜索地点或在地图上标记", Toast.LENGTH_SHORT).show()
-                }
-            }
-            val toggleFollowAction: () -> Unit = {
-                follow = !follow
-                if (follow) {
-                    val p = simPos
-                    val first = config.points.firstOrNull()
-                    val targetLat = p?.lat ?: first?.lat
-                    val targetLng = p?.lng ?: first?.lng
-                    if (targetLat != null && targetLng != null) {
-                        mapView.controller.animateTo(GeoPoint(targetLat, targetLng))
-                    }
-                    Toast.makeText(context, "已开启模拟移动跟随", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "已关闭模拟移动跟随", Toast.LENGTH_SHORT).show()
-                }
-            }
-            val startRecordingAction: () -> Unit = {
-                if (config.enabled) {
-                    Toast.makeText(context, "请先停止模拟定位后再录制真实轨迹", Toast.LENGTH_SHORT).show()
-                } else if (!tracker.hasLocationPermission()) {
-                    permissionLauncher.launch(locationPermissions)
-                } else if (!tracker.isLocationProviderEnabled()) {
-                    Toast.makeText(context, "请在手机系统设置中开启定位服务 (GPS)", Toast.LENGTH_LONG).show()
-                } else {
-                    tracker.startRecording()
-                    Toast.makeText(context, "开始录制路线，带着手机移动即可", Toast.LENGTH_SHORT).show()
-                }
-            }
 
             QuickFunctionsPanel(
                 functions = listOf(
