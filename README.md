@@ -1,17 +1,9 @@
 # NFC Hider
 
 一款基于 Xposed / LSPosed 的 Android 模块：对目标应用隐藏 NFC 硬件，并支持 GPS 位置模拟与轨迹回放。
-
-**当前版本：8**
-
-- Telegram：https://t.me/+eIEZ13o6HPU5NzBk
-- 中国群：921440494
+- Telegram：https://t.me/mccrlab707
 - Issue：https://github.com/furina707/com.nfchider
 - 仓库：https://github.com/Xposed-Modules-Repo/com.nfchider
-
-[![构建状态](https://github.com/furina707/com.nfchider/actions/workflows/build.yml/badge.svg)](https://github.com/furina707/com.nfchider/actions/workflows/build.yml)
-
----
 
 ## 功能
 
